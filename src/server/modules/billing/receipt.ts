@@ -19,6 +19,9 @@ export type ReceiptBillRow = {
   gstPaise: number;
   discountPaise: number;
   serviceChargePaise: number;
+  additionalTaxPaise?: number;
+  billNo?: number | null;
+  orderNo?: number | null;
   totalPaise: number;
   paidAt: Date | null;
   paymentMethod: "cash" | "qr" | null;
@@ -42,6 +45,9 @@ export type ReceiptLine = {
 export type BillReceipt = {
   billId: string;
   orderId: string;
+  /** Human-readable numbers (formatBillNo / formatOrderNo); null for legacy rows. */
+  billNo: number | null;
+  orderNo: number | null;
   tableLabel: string;
   orderPlacedAt: number;
   lines: ReceiptLine[];
@@ -50,6 +56,7 @@ export type BillReceipt = {
   discountRupees: number;
   serviceChargeRupees: number;
   gstRupees: number;
+  additionalTaxRupees: number;
   totalRupees: number;
   paidRupees: number;
   status: "unpaid" | "partial" | "paid";
@@ -96,6 +103,8 @@ export function buildReceipt(input: {
   return {
     billId: bill.id,
     orderId: bill.orderId,
+    billNo: bill.billNo ?? null,
+    orderNo: bill.orderNo ?? null,
     tableLabel: input.tableLabel,
     orderPlacedAt: input.orderPlacedAt.getTime(),
     lines,
@@ -104,6 +113,7 @@ export function buildReceipt(input: {
     discountRupees: rupees(bill.discountPaise),
     serviceChargeRupees: rupees(bill.serviceChargePaise),
     gstRupees: rupees(bill.gstPaise),
+    additionalTaxRupees: rupees(bill.additionalTaxPaise ?? 0),
     totalRupees: rupees(bill.totalPaise),
     paidRupees: rupees(paidPaise),
     status,

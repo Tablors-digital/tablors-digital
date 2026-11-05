@@ -93,10 +93,10 @@ export function BillReceipt({ bill }: { bill: CustomerBillState }) {
           {receipt.discountRupees > 0 && (
             <Row label="Discount" value={`− ${inr(receipt.discountRupees)}`} />
           )}
-          {receipt.serviceChargeRupees > 0 && (
-            <Row label="Service charge" value={inr(receipt.serviceChargeRupees)} />
-          )}
           <Row label="GST" value={inr(receipt.gstRupees)} />
+          {/* Issued bills carry no extra levy today, so this is always zero. */}
+          <Row label="Additional tax" value={inr(0)} />
+          <Row label="Service charge" value={inr(receipt.serviceChargeRupees)} />
           <div className="flex items-center justify-between pt-1 text-sm font-bold">
             <span>Total</span>
             <span style={{ color: "var(--device-gold)" }}>{inr(receipt.totalRupees)}</span>

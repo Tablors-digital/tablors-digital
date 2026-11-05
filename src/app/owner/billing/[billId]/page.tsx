@@ -10,6 +10,7 @@ import {
 } from "@/server/modules/billing/db-billing";
 import { getTableByIdDb } from "@/server/modules/data/tables-db";
 import { getOrderFromDb } from "@/server/modules/orders/db-orders";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +105,7 @@ export default async function BillReceiptPage({ params }: PageProps) {
       <div className="mx-auto mt-6 max-w-md rounded-[var(--radius-brand)] bg-white p-6 text-black">
         <div className="text-center">
           <p className="text-lg font-semibold">Tablor</p>
-          <p className="text-xs text-neutral-600">Bill #{bill.id}</p>
+          <p className="text-xs text-neutral-600">{formatBillNo(bill.billNo)}</p>
         </div>
 
         <div className="mt-4 space-y-1 border-y border-dashed border-neutral-400 py-3 text-xs">
@@ -115,7 +116,7 @@ export default async function BillReceiptPage({ params }: PageProps) {
 
           <div className="flex justify-between">
             <span>Order</span>
-            <span>#{bill.orderId}</span>
+            <span>{formatOrderNo(bill.orderNo)}</span>
           </div>
 
           {order && (

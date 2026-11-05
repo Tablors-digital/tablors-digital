@@ -171,6 +171,17 @@ export async function deleteNotification(
   return rows.length > 0;
 }
 
+export async function getNotificationById(
+  id: string,
+  restaurantId: string = DEMO_RESTAURANT_ID,
+): Promise<Notification | null> {
+  const [row] = await db
+    .select()
+    .from(notifications)
+    .where(and(eq(notifications.id, id), eq(notifications.restaurantId, restaurantId)));
+  return row ? toNotification(row) : null;
+}
+
 export async function resolveByKey(
   dedupeKey: string,
   restaurantId: string = DEMO_RESTAURANT_ID,

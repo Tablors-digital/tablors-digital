@@ -4,6 +4,7 @@ import { ClipboardList, StickyNote } from "lucide-react";
 import type { MenuItem, Order, RestaurantTable } from "@/server/modules/demo-store/store";
 import { KITCHEN_STATUS_META, formatElapsed, minutesSince } from "./kitchen-utils";
 import { AvailabilityToggle } from "./availability-toggle";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 export function OrderDetailsPanel({
   order,
@@ -45,7 +46,7 @@ export function OrderDetailsPanel({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--kd-border)] bg-[var(--kd-surface-raised)] px-3.5 py-3">
         <div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-semibold text-[var(--kd-text)]">#{order.id}</span>
+            <span className="text-sm font-semibold text-[var(--kd-text)]">{formatOrderNo(order.orderNo)}</span>
             <span className="rounded-full border border-[var(--kd-border)] px-2 py-0.5 text-[10px] font-medium text-[var(--kd-text-secondary)]">
               {table?.label ?? order.tableId}
             </span>

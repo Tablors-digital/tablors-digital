@@ -10,14 +10,17 @@ import {
 } from "@/server/modules/auth/session";
 
 import type { OrderStatus } from "@/server/modules/demo-store/store";
-import { notify } from "@/server/modules/notifications/store";
+import { notifyOrderCancelled, notifyOrderPlaced, notifyWaiterCall } from "@/server/modules/notifications/events";
+import { acknowledgeWaiterDb, requestWaiterDb } from "./waiter";
 
+import { formatOrderNo } from "@/lib/order-number";
 import { isOrderPaidDb } from "@/server/modules/billing/db-billing";
 
 import {
+  cancelOrderInDb,
   createOrderInDb,
+  getOrderFromDb,
   transitionOrderInDb,
-  setWaiterCalledInDb,
 } from "./db-orders";
 
 export type AdvanceFailureCode =
@@ -164,6 +167,27 @@ export async function advanceOrderFromForm(
   }
 }
 
+/** Staff cancels an unpaid order (Live Orders page). Notifies the dashboard. */
+export async function cancelOrderFromForm(formData: FormData): Promise<void> {
+  const role = await getDemoRole();
+  if (role === null || !STAFF_ROLES.includes(role)) {
+    redirect("/owner/orders?notice=forbidden");
+  }
+  const id = String(formData.get("orderId") ?? "").trim();
+  if (!id) redirect("/owner/orders?notice=invalid");
+
+  const result = await cancelOrderInDb(DEMO_RESTAURANT_ID, id, role);
+  if (result.ok) {
+    await notifyOrderCancelled({ tableId: result.tableId, orderId: id });
+  }
+  revalidateOrderSurfaces();
+  redirect(
+    result.ok
+      ? "/owner/orders?notice=cancelled"
+      : `/owner/orders?notice=${result.reason === "has-payment" ? "paid" : "missing"}`,
+  );
+}
+
 export type PlaceOrderInput = {
   tableId: string;
   /**
@@ -174,7 +198,16 @@ export type PlaceOrderInput = {
 };
 
 export type PlaceOrderResult =
-  | { ok: true; orderId: string }
+  | {
+      ok: true;
+      orderId: string;
+      /** Human-readable, e.g. ORD-00125. */
+      orderNumber: string;
+      round: number;
+      appended: boolean;
+      /** Every confirmed line on the open order, all rounds, from the database. */
+      lines: { itemId?: string; code: string; name: string; qty: number; priceRupees: number; round: number }[];
+    }
   | { ok: false; error: string };
 
 export async function placeCustomerOrder(
@@ -197,13 +230,11 @@ export async function placeCustomerOrder(
   }
 
   // Notify only after the database transaction has committed.
-  await notify({
-    type: "ORDER_NEW",
-    title: "New order received",
-    message: `New order received from Table ${input.tableId}.`,
+  await notifyOrderPlaced({
     tableId: input.tableId,
     orderId: result.orderId,
-    dedupeKey: `order-new:${result.orderId}`,
+    round: result.round,
+    appended: result.appended,
   });
 
   revalidatePath("/owner/orders");
@@ -211,7 +242,23 @@ export async function placeCustomerOrder(
   revalidatePath("/kitchen");
   revalidatePath("/owner/notifications");
 
-  return { ok: true, orderId: result.orderId };
+  const order = await getOrderFromDb(DEMO_RESTAURANT_ID, result.orderId);
+
+  return {
+    ok: true,
+    orderId: result.orderId,
+    orderNumber: formatOrderNo(result.orderNo),
+    round: result.round,
+    appended: result.appended,
+    lines: (order?.lines ?? []).map((l) => ({
+      itemId: l.itemId,
+      code: l.code,
+      name: l.name,
+      qty: l.qty,
+      priceRupees: l.priceRupees,
+      round: l.round ?? 1,
+    })),
+  };
 }
 
 export type CallWaiterResult =
@@ -221,17 +268,17 @@ export type CallWaiterResult =
 export async function callWaiter(
   tableId: string,
 ): Promise<CallWaiterResult> {
-  const ok = await setWaiterCalledInDb(
-    DEMO_RESTAURANT_ID,
-    tableId,
-    true,
-  );
+  const call = await requestWaiterDb(DEMO_RESTAURANT_ID, tableId);
 
-  if (!ok) {
+  if (!call.ok) {
     return { ok: false, error: "Table not found." };
   }
 
-  revalidatePath("/owner/orders");
+  // Only a brand-new call notifies the owner; a repeat press while the
+  // request is still open just keeps ringing (no duplicate popups).
+  if (call.created) {
+    await notifyWaiterCall({ tableId, callId: call.callId });
+  }
 
   return { ok: true };
 }
@@ -246,13 +293,10 @@ export async function acknowledgeWaiter(
     return;
   }
 
-  await setWaiterCalledInDb(
-    DEMO_RESTAURANT_ID,
-    tableId,
-    false,
-  );
+  await acknowledgeWaiterDb(DEMO_RESTAURANT_ID, tableId, role);
 
   revalidatePath("/owner/orders");
+  revalidatePath("/owner/tables");
 }
 
 export type OrderPaymentStatus = {

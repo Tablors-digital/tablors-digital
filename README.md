@@ -37,6 +37,33 @@ rewrite of the pages themselves. Data resets on server restart.
 - [ ] Phase 2: real database, Argon2id auth, RBAC, tenant isolation
 - [ ] Phase 3–7: see `docs/architecture.md`
 
+## Running the project (PostgreSQL build)
+
+```bash
+npm install
+cp .env.example .env.local        # set DATABASE_URL (and Razorpay keys for QR payments)
+npm run db:migrate:safe           # applies src/server/db/migrations in order, once each
+npm run db:seed                   # demo restaurant, tables 1-6, menu (3 items unavailable)
+npm run dev                       # http://localhost:3000  (customer: /customer/t01 ... /customer/t06)
+```
+
+Checks: `npm run typecheck`, `npm run build`, `npm test`,
+`DATABASE_URL=... npm run test:integration` (real database; wipes order data, use a scratch DB).
+`npm run test:legacy` also runs older suites written for the retired in-memory store;
+28 of those fail because they seed the in-memory store while the app now reads PostgreSQL.
+
+### How the table device works
+* One open order per table. Confirming again appends a new *round* to the same order
+  (earlier rounds are never overwritten). One combined bill covers every round.
+* Bill numbers (`BILL-00045`) and order numbers (`ORD-00125`) come from database sequences.
+* Tax rates (GST, service charge, additional tax) are set in Owner > Settings and are frozen on each
+  bill when it is issued; later settings changes only affect new bills.
+* SCAN TO PAY creates a single-use, fixed-amount Razorpay UPI QR for the bill's exact balance.
+  A payment is recorded only when Razorpay confirms it (signed webhook, or Tablor asking Razorpay's API).
+  Cash/UPI entered by staff on the owner Billing page works as before.
+* The device syncs through `GET /api/customer/[tableId]/state` (every 2.5 s while visible).
+
+
 ## Getting started
 
 ```bash

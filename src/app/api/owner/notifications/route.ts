@@ -4,7 +4,9 @@ import {
   getNotificationFeed,
   markNotificationsRead,
 } from "@/server/modules/notifications/feed";
-import { listFor, setStatus } from "@/server/modules/notifications/store";
+import { getNotificationById, listFor, setStatus } from "@/server/modules/notifications/store";
+import { acknowledgeWaiterDb } from "@/server/modules/orders/waiter";
+import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import "@/server/modules/notifications/connect";
 
 const BUSINESS_ID = "demo-business";
@@ -60,7 +62,20 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     ids?: unknown;
     all?: unknown;
+    acknowledge?: unknown;
   };
+
+  // Acknowledge one notification. For a waiter request this also answers the
+  // customer's device ("ringing" -> "on the way") and clears the table flag.
+  if (typeof body.acknowledge === "string") {
+    const n = await getNotificationById(body.acknowledge);
+    if (!n) return new NextResponse("Not found", { status: 404 });
+    if (n.type === "WAITER_CALL" && n.tableId) {
+      await acknowledgeWaiterDb(DEMO_RESTAURANT_ID, n.tableId, "owner");
+    }
+    await setStatus(n.id, "owner", "acknowledged");
+    return NextResponse.json({ ok: true });
+  }
 
   if (body.all === true) {
     await markNotificationsRead("all", BUSINESS_ID);

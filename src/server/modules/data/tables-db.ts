@@ -239,10 +239,12 @@ export async function renameTableDb(
   });
 }
 
+
 export async function setTableStatusDb(
   restaurantId: string,
   tableId: string,
   status: "occupied" | "available",
+  confirmActiveOrderRelease = false,
 ): Promise<SetTableStatusResult> {
   return db.transaction(async (tx): Promise<SetTableStatusResult> => {
     const [table] = await tx
@@ -250,24 +252,37 @@ export async function setTableStatusDb(
       .from(restaurantTables)
       .where(and(live(restaurantId), eq(restaurantTables.id, tableId)))
       .for("update");
-    if (!table) return { ok: false, reason: "not-found" };
 
-    if (status === "available" && (await tableIsBusy(tx, restaurantId, table))) {
-      return { ok: false, reason: "has-active-order" };
+    if (!table) {
+      return { ok: false, reason: "not-found" };
+    }
+
+    if (status === "available") {
+      const busy = await tableIsBusy(tx, restaurantId, table);
+
+      // Require explicit owner confirmation before releasing
+      // a table containing an active order or unpaid bill.
+      if (busy && !confirmActiveOrderRelease) {
+        return { ok: false, reason: "has-active-order" };
+      }
     }
 
     const [updated] = await tx
       .update(restaurantTables)
       .set({
         status,
-        currentOrderId: status === "available" ? null : table.currentOrderId,
+        // Release the table without deleting historical orders or bills.
+        currentOrderId:
+          status === "available" ? null : table.currentOrderId,
         updatedAt: new Date(),
       })
       .where(eq(restaurantTables.id, tableId))
       .returning();
+
     return { ok: true, table: toTable(updated) };
   });
 }
+
 
 export async function reserveTableDb(
   restaurantId: string,

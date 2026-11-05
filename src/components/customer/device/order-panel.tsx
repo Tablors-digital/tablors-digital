@@ -2,17 +2,44 @@
 
 import type { CartLine } from "@/components/customer/cart-context";
 
+/** Item being picked on the keypad right now (not yet added to the order). */
+export type OrderPanelSelection = {
+  code: string;
+  name: string;
+  qty: number;
+  unitRupees: number;
+};
+
 export function OrderPanel({
   tableLabel,
   lines,
   itemCount,
   totalRupees,
+  selection = null,
+  codeDraft = "",
+  confirmedLines = [],
+  confirmedOrderNumber = null,
 }: {
   tableLabel: string;
   lines: CartLine[];
   itemCount: number;
   totalRupees: number;
+  /** Live selection: shown the moment an item code is accepted. */
+  selection?: OrderPanelSelection | null;
+  /** Code digits typed so far (shown while no item is selected yet). */
+  codeDraft?: string;
+  /** Lines of the last placed order — kept on screen after confirming. */
+  confirmedLines?: CartLine[];
+  /** Human-readable, e.g. ORD-00125 (never the internal id). */
+  confirmedOrderNumber?: string | null;
 }) {
+  const roundNumbers = Array.from(new Set(confirmedLines.map((l) => l.round ?? 1))).sort((a, b) => a - b);
+  const confirmedCount = confirmedLines.reduce((sum, l) => sum + l.qty, 0);
+  const confirmedTotal = confirmedLines.reduce(
+    (sum, l) => sum + l.qty * l.priceRupees,
+    0
+  );
+
   return (
     <div
       className="flex h-full flex-col rounded-lg border px-3 py-2.5 sm:px-4 sm:py-3"
@@ -33,9 +60,46 @@ export function OrderPanel({
         </span>
       </div>
 
+      {/* Live selection strip — updates on every code digit and every qty change */}
+      {(selection || codeDraft) && (
+        <div
+          className="mt-2 flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[12px]"
+          style={{
+            borderColor: "var(--device-gold)",
+            background: "rgba(212,175,55,0.1)",
+            color: "var(--device-lcd-text)",
+          }}
+          aria-live="polite"
+        >
+          {selection ? (
+            <>
+              <span className="min-w-0 truncate">
+                <span className="font-mono text-[11px]" style={{ color: "var(--device-gold)" }}>
+                  {selection.code}
+                </span>{" "}
+                <span className="font-semibold">{selection.name}</span>
+              </span>
+              <span className="shrink-0 font-mono font-bold" style={{ color: "var(--device-lcd-cyan)" }}>
+                × {selection.qty}
+                <span className="ml-2 font-normal opacity-70">
+                  ₹{selection.unitRupees * selection.qty}
+                </span>
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: "var(--device-lcd-muted)" }}>Item code</span>
+              <span className="font-mono font-bold" style={{ color: "var(--device-lcd-cyan)" }}>
+                {codeDraft.padEnd(3, "_")}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="mt-2 flex-1 overflow-y-auto">
         {lines.length === 0 ? (
-          <p className="py-6 text-center text-xs" style={{ color: "var(--device-lcd-muted)" }}>
+          <p className="py-4 text-center text-xs" style={{ color: "var(--device-lcd-muted)" }}>
             No items added yet. Select from the menu above.
           </p>
         ) : (
@@ -63,6 +127,49 @@ export function OrderPanel({
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Last confirmed order — stays visible; CLEAR ALL never touches it */}
+        {confirmedLines.length > 0 && (
+          <div
+            className="mt-3 rounded-md border px-2.5 py-2"
+            style={{ borderColor: "#1f6b3a", background: "rgba(31,107,58,0.12)" }}
+          >
+            <p
+              className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wide"
+              style={{ color: "#5fe08a" }}
+            >
+              <span>Confirmed order</span>
+              {confirmedOrderNumber && (
+                <span className="font-mono font-normal opacity-80">{confirmedOrderNumber}</span>
+              )}
+            </p>
+            <table className="mt-1 w-full text-[12px]" style={{ color: "var(--device-lcd-text)" }}>
+              <tbody>
+                {roundNumbers.flatMap((round) => [
+                  roundNumbers.length > 1 ? (
+                    <tr key={`r-${round}`}>
+                      <td colSpan={3} className="pt-1 text-[10px] uppercase tracking-wide opacity-70">
+                        Round {round}
+                      </td>
+                    </tr>
+                  ) : null,
+                  ...confirmedLines
+                    .filter((l) => (l.round ?? 1) === round)
+                    .map((line, i) => (
+                      <tr key={`c-${round}-${line.code}-${i}`}>
+                        <td className="py-0.5 pr-2">{line.name}</td>
+                        <td className="py-0.5 text-right">× {line.qty}</td>
+                        <td className="py-0.5 pl-2 text-right">{line.priceRupees * line.qty}/-</td>
+                      </tr>
+                    )),
+                ])}
+              </tbody>
+            </table>
+            <p className="mt-1 text-right text-[11px]" style={{ color: "#5fe08a" }}>
+              {confirmedCount} items · ₹ {confirmedTotal}/-
+            </p>
+          </div>
         )}
       </div>
 

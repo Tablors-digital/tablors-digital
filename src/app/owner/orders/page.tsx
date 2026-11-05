@@ -8,7 +8,9 @@ import type { Order, RestaurantTable } from "@/server/modules/demo-store/store";
 import {
   acknowledgeWaiter,
   advanceOrderFromForm,
+  cancelOrderFromForm,
 } from "@/server/modules/orders/actions";
+import { formatOrderNo } from "@/lib/order-number";
 import { listAllOrders, listTables } from "@/server/modules/orders/db-orders";
 
 // Orders change constantly — never prerender.
@@ -63,6 +65,10 @@ function getNoticeMessage(code: string | undefined): string | null {
       return "You don't have permission to update orders.";
     case "invalid":
       return "That update request was invalid.";
+    case "cancelled":
+      return "Order cancelled.";
+    case "paid":
+      return "A paid order can't be cancelled — use a refund instead.";
     default:
       return null;
   }
@@ -214,7 +220,7 @@ export default async function LiveOrdersPage({ searchParams }: PageProps) {
                   </p>
 
                   <p className="text-xs text-[var(--color-text-muted)]">
-                    Order #{order.id.slice(0, 8)} · Status: {getStatusLabel(order.status)}
+                    {formatOrderNo(order.orderNo)} · Status: {getStatusLabel(order.status)}
                     {table?.waiterCalled && (
                       <span className="ml-2 text-[var(--color-gold-500)]">
                         · 🔔 Waiter called
@@ -257,6 +263,18 @@ export default async function LiveOrdersPage({ searchParams }: PageProps) {
                     </form>
                   )}
 
+                  {isToday && ["new", "preparing", "ready", "served"].includes(order.status) && (
+                    <form action={cancelOrderFromForm}>
+                      <input type="hidden" name="orderId" value={order.id} />
+                      <button
+                        type="submit"
+                        className="rounded-[var(--radius-brand)] border border-[var(--color-error)] px-3 py-2 text-xs font-medium text-[var(--color-error)]"
+                      >
+                        Cancel order
+                      </button>
+                    </form>
+                  )}
+
                   {order.status === "served" && (
                     <Link
                       href={`/owner/billing?tableId=${order.tableId}`}
@@ -269,9 +287,12 @@ export default async function LiveOrdersPage({ searchParams }: PageProps) {
               </div>
 
               <ul className="mt-4 space-y-1 text-sm text-[var(--color-text-secondary)]">
-                {order.lines.map((line) => (
-                  <li key={line.itemId ?? line.code}>
+                {order.lines.map((line, i) => (
+                  <li key={`${line.itemId ?? line.code}-${line.round ?? 1}-${i}`}>
                     {line.name} × {line.qty}
+                    {(line.round ?? 1) > 1 && (
+                      <span className="ml-2 text-xs text-[var(--color-gold-500)]">added · round {line.round}</span>
+                    )}
                   </li>
                 ))}
               </ul>

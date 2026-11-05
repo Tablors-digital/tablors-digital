@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requirePermission } from "@/server/modules/auth/session";
+import { notifyTableReserved } from "@/server/modules/notifications/events";
 import {
   renameTableDb,
   reserveTableDb,
@@ -22,9 +23,13 @@ function refresh(tableId: string): void {
   revalidatePath(`/owner/tables/${tableId}`);
 }
 
-/** redirect() throws internally, so call it as the last statement of a branch. */
-function back(tableId: string, notice: string): never {
+/**
+ * redirect() throws internally, so call it as the last statement of a branch.
+ * Forms on the tables list send returnTo=list to stay on the list.
+ */
+function back(tableId: string, notice: string, returnTo?: string): never {
   refresh(tableId);
+  if (returnTo === "list") redirect(`/owner/tables?notice=${notice}`);
   redirect(`/owner/tables/${tableId}?notice=${notice}`);
 }
 
@@ -73,11 +78,14 @@ export async function reserveTableAction(formData: FormData): Promise<void> {
       return redirect("/owner/tables");
     }
 
-    return back(tableId, "cannot-reserve");
+    return back(tableId, "cannot-reserve", readText(formData, "returnTo"));
   }
 
-  return back(tableId, "reserved");
+  await notifyTableReserved({ tableId, reservationId: `${tableId}:${Date.now()}` });
+
+  return back(tableId, "reserved", readText(formData, "returnTo"));
 }
+
 
 export async function releaseTableAction(formData: FormData): Promise<void> {
   const session = await requirePermission("tables");
@@ -88,15 +96,40 @@ export async function releaseTableAction(formData: FormData): Promise<void> {
     return redirect("/owner/tables");
   }
 
-  const result = await setTableStatusDb(session.restaurantId, tableId, "available");
+  // Explicit confirmation from the owner.
+  const confirmed =
+    readText(formData, "confirmActiveOrderRelease") === "yes";
+
+  if (!confirmed) {
+    return back(
+      tableId,
+      "confirmation-required",
+      readText(formData, "returnTo"),
+    );
+  }
+
+  const result = await setTableStatusDb(
+    session.restaurantId,
+    tableId,
+    "available",
+    true,
+  );
 
   if (!result.ok) {
     if (result.reason === "not-found") {
       return redirect("/owner/tables");
     }
 
-    return back(tableId, "cannot-release");
+    return back(
+      tableId,
+      "cannot-release",
+      readText(formData, "returnTo"),
+    );
   }
 
-  return back(tableId, "released");
+  return back(
+    tableId,
+    "released",
+    readText(formData, "returnTo"),
+  );
 }

@@ -58,8 +58,11 @@ const schema = z.object({
   openingTime: time,
   closingTime: time,
 
-  gstRatePercent: z.number().min(0).max(50),
-  serviceChargePercent: z.number().min(0).max(30),
+  // Same ceilings the billing engine enforces, so a saved value is never silently ignored.
+  gstRatePercent: z.number().min(0, "GST must be between 0 and 28%").max(28, "GST must be between 0 and 28%"),
+  serviceChargePercent: z.number().min(0, "Service charge must be between 0 and 20%").max(20, "Service charge must be between 0 and 20%"),
+  additionalTaxPercent: z.number().min(0, "Additional tax must be between 0 and 28%").max(28, "Additional tax must be between 0 and 28%"),
+  additionalTaxLabel: z.string().trim().min(1, "Enter a name for the additional tax").max(30),
   pricesIncludeTax: z.boolean(),
 
   currency: z.enum(["INR", "USD", "EUR", "GBP", "AED"]),

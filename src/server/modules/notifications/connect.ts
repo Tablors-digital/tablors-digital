@@ -3,6 +3,8 @@ import { setNotificationLoader } from "@/server/modules/notifications/feed";
 
 const TYPE_MAP = {
   ORDER_NEW: "order_new",
+  ORDER_ADDED: "order_added",
+  WAITER_CALL: "waiter_call",
   PAYMENT_RECEIVED: "payment_received",
   ITEM_UNAVAILABLE: "item_unavailable",
   TABLE_RESERVED: "table_reserved",
@@ -23,5 +25,8 @@ setNotificationLoader(async () => {
     message: n.message,
     at: new Date(n.createdAt),
     read: n.status !== "unread",
+    status: n.status,
+    tableId: n.tableId,
+    orderId: n.orderId,
   }));
 });

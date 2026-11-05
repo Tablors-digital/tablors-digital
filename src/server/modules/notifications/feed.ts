@@ -4,7 +4,7 @@
  * Connect it ONCE with `setNotificationLoader` (bottom of this file).
  */
 export const NOTIFICATION_TYPES = [
-  "order_new", "payment_received", "item_unavailable", "table_reserved",
+  "order_new", "order_added", "waiter_call", "payment_received", "item_unavailable", "table_reserved",
   "order_cancelled", "device_offline", "device_low_battery", "kitchen_order_delayed",
   "offer_created", "loyalty_points_earned",
 ] as const;
@@ -12,12 +12,18 @@ export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 export type Severity = "info" | "warning" | "critical";
 
 /** What your existing store must give us per notification. `id` must be stable so "read" sticks. */
-export interface StoredNotification { id: string; type: NotificationType; message: string; at: Date; read?: boolean }
+export interface StoredNotification {
+  id: string; type: NotificationType; message: string; at: Date; read?: boolean;
+  /** unread | read | acknowledged | resolved */
+  status?: string; tableId?: string; orderId?: string;
+}
 export interface OwnerNotification extends StoredNotification { title: string; severity: Severity; href: string; read: boolean }
 
 /** Title, urgency and where a click should take the owner, per type. */
 export const TYPE_META: Record<NotificationType, { title: string; severity: Severity; href: string }> = {
   order_new: { title: "New order", severity: "warning", href: "/owner/orders" },
+  order_added: { title: "Additional order", severity: "warning", href: "/owner/orders" },
+  waiter_call: { title: "Waiter requested", severity: "critical", href: "/owner/tables" },
   payment_received: { title: "Payment received", severity: "info", href: "/owner/billing" },
   item_unavailable: { title: "Item unavailable", severity: "warning", href: "/owner/menu" },
   table_reserved: { title: "Table reserved", severity: "info", href: "/owner/reservations" },

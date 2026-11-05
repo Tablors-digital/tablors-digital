@@ -25,6 +25,18 @@ export const NOTIFICATION_TYPES = {
     autoResolve: false,
   },
 
+  ORDER_ADDED: {
+    roles: ["kitchen", "owner"],
+    priority: "high",
+    autoResolve: false,
+  },
+
+  WAITER_CALL: {
+    roles: ["owner", "waiter", "manager"],
+    priority: "critical",
+    autoResolve: false,
+  },
+
   PAYMENT_RECEIVED: {
     roles: ["owner", "cashier"],
     priority: "medium",

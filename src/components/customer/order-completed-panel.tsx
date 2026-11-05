@@ -1,18 +1,25 @@
-import { FeedbackForm } from "./feedback-form";
 
 /**
  * Full takeover view shown once THIS specific order (identified by its
  * real orderId, not the table) has a paid bill. Replaces the entire
  * ordering session — menu and cart are not shown alongside this.
  */
+
+/**
+ * Full takeover view shown once this specific order has been paid.
+ * Replaces the ordering session with a clean payment-success screen.
+ */
 export function OrderCompletedPanel({
-  orderId,
-  tableId,
-  feedbackSubmitted,
+  orderNumber,
+  onNewOrder,
 }: {
   orderId: string;
+  /** Human-readable order number, e.g. ORD-00125. */
+  orderNumber: string;
   tableId: string;
   feedbackSubmitted: boolean;
+  /** Closes the finished session so the next customer can order. */
+  onNewOrder?: () => void;
 }) {
   return (
     <div className="mx-auto max-w-md">
@@ -20,26 +27,23 @@ export function OrderCompletedPanel({
         <p className="text-xl font-semibold text-[var(--tablor-accent)]">
           Payment Successful
         </p>
+
         <p className="mt-1 text-sm text-[var(--tablor-text-secondary)]">
-          Order #{orderId} &middot; Completed
+          {orderNumber} &middot; Completed
         </p>
+
         <p className="mt-4 text-sm text-[var(--tablor-text-primary)]">
           Thank you for dining with us.
         </p>
-      </div>
 
-      <div className="mt-6">
-        {feedbackSubmitted ? (
-          <div className="rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] px-5 py-6 text-center">
-            <p className="text-base font-medium text-[var(--tablor-accent)]">
-              Thank you for your feedback!
-            </p>
-            <p className="mt-1 text-sm text-[var(--tablor-text-secondary)]">
-              Your feedback has been submitted successfully.
-            </p>
-          </div>
-        ) : (
-          <FeedbackForm orderId={orderId} tableId={tableId} />
+        {onNewOrder && (
+          <button
+            type="button"
+            onClick={onNewOrder}
+            className="mt-5 rounded-lg bg-[var(--tablor-accent)] px-5 py-2.5 text-sm font-semibold text-[#0d0e0b]"
+          >
+            Start a new order
+          </button>
         )}
       </div>
     </div>

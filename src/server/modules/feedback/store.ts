@@ -21,6 +21,23 @@ export type Feedback = {
   orderingRating: number;
   comment: string | null;
   submittedAt: number;
+  /**
+   * On-device feedback (1–10 scale). Absent on feedback from the post-payment
+   * 1–5 form. The 1–5 fields above are always filled (device ratings are
+   * mapped onto them) so the owner dashboard keeps working unchanged.
+   */
+  deviceRatings?: DeviceRatings;
+};
+
+export type DeviceRatings = {
+  /** "How would you rate our restaurant?" 1–10 */
+  overall: number;
+  /** "How was the food taste?" 1–10 */
+  foodTaste: number;
+  /** "How easy was the ordering device to use?" 1–10 */
+  deviceUsability: number;
+  /** Per-dish review, 1–10, for items on the order. */
+  items: { itemId: string; code: string; name: string; rating: number }[];
 };
 
 const COLLECTION = "feedback";
@@ -41,6 +58,7 @@ export async function submitFeedback(input: {
   serviceRating: number;
   orderingRating: number;
   comment: string | null;
+  deviceRatings?: DeviceRatings;
 }): Promise<Feedback> {
   const entry: Feedback = {
     id: `f_${randomUUID()}`,
@@ -51,6 +69,7 @@ export async function submitFeedback(input: {
     orderingRating: input.orderingRating,
     comment: input.comment,
     submittedAt: Date.now(),
+    ...(input.deviceRatings ? { deviceRatings: input.deviceRatings } : {}),
   };
   await putDoc(DEMO_RESTAURANT_ID, COLLECTION, input.orderId, entry);
   return entry;

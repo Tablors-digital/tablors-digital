@@ -11,7 +11,9 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx src/server/db/seed.ts",
-    "db:migrate:safe": "node scripts/apply-migrations.mjs"
+    "db:migrate:safe": "node scripts/apply-migrations.mjs",
+    "test:legacy": "VITEST_INCLUDE_LEGACY=1 vitest run",
+    "test:integration": "ALLOW_DESTRUCTIVE_TESTS=1 vitest run tests/integration"
   },
   "dependencies": {
     "argon2": "^0.45.1",

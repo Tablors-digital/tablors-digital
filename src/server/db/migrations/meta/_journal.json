@@ -15,6 +15,20 @@
       "when": 1792220025071,
       "tag": "0001_additive_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0002_order_rounds_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793000100000,
+      "tag": "0003_schema_drift_loyalty_payments",
+      "breakpoints": true
     }
   ]
 }

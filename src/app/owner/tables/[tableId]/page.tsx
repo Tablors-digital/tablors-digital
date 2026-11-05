@@ -112,7 +112,7 @@ function ReserveLink({
   );
 }
 
-/** Mark available, as a real form so it works without client JS. */
+/** Mark available. Active orders require an explicit owner confirmation. */
 function HoldForm({
   tableId,
   action,
@@ -126,18 +126,50 @@ function HoldForm({
   disabledReason: string | null;
   variant: "header" | "row";
 }) {
+  const buttonClass = variant === "header" ? HEADER_BUTTON : ROW_BUTTON;
+
+  if (disabledReason) {
+    return (
+      <details className={variant === "header" ? "" : "w-full"}>
+        <summary
+          className={`${buttonClass} flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden`}
+          title={disabledReason}
+        >
+          <span>{label}</span>
+          {variant === "row" && <span aria-hidden="true">→</span>}
+        </summary>
+
+        <form action={action} className="mt-3 space-y-3 rounded-[var(--radius-brand)] border border-[var(--color-warning)]/40 bg-[var(--color-surface)] p-3">
+          <input type="hidden" name="tableId" value={tableId} />
+          <p className="text-xs leading-5 text-[var(--color-text-muted)]">
+            {disabledReason}. Releasing the table will not delete the order or bill history.
+          </p>
+          <label className="flex items-start gap-2 text-xs leading-5 text-[var(--color-text-primary)]">
+            <input
+              type="checkbox"
+              name="confirmActiveOrderRelease"
+              value="yes"
+              required
+              className="mt-1 accent-[var(--color-radium-500)]"
+            />
+            I confirm that I want to release this table while its order is active.
+          </label>
+          <button
+            type="submit"
+            className="w-full rounded-[var(--radius-brand)] border border-[var(--color-danger)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger)] transition hover:bg-[var(--color-danger)]/10"
+          >
+            Confirm — Mark available
+          </button>
+        </form>
+      </details>
+    );
+  }
+
   return (
     <form action={action}>
       <input type="hidden" name="tableId" value={tableId} />
-
-      <button
-        type="submit"
-        disabled={disabledReason !== null}
-        title={disabledReason ?? undefined}
-        className={variant === "header" ? HEADER_BUTTON : ROW_BUTTON}
-      >
+      <button type="submit" className={buttonClass}>
         <span>{label}</span>
-
         {variant === "row" && <span aria-hidden="true">→</span>}
       </button>
     </form>

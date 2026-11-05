@@ -113,10 +113,13 @@ export async function getTableActivities(
   const summaries = await getBillSummariesDb(restaurantId, bills);
 
   return tableList.map((table) => {
-    const activeOrders = orders.filter(
-      (o) => o.tableId === table.id && o.status !== "billed"
-    );
-
+const activeOrders = table.currentOrderId
+  ? orders.filter(
+      (order) =>
+        order.tableId === table.id &&
+        order.status !== "billed",
+    )
+  : [];
     const unsettled = bills.filter(
       (b) => b.tableId === table.id && b.paidAt === null
     );

@@ -8,11 +8,11 @@ import {
   eq,
   gte,
   ne,
-  notInArray,
-} from "drizzle-orm";
+  notInArray, inArray } from "drizzle-orm";
 
 import { db } from "@/server/db/client";
 import { buildReceipt, type BillReceipt } from "./receipt";
+import { computeBillBreakdown, RATE_LIMITS } from "@/lib/bill-breakdown";
 
 import {
   bills,
@@ -67,6 +67,11 @@ function toBill(b: BillRow): Bill {
     discountRupees: b.discountPaise / 100,
     serviceChargeRupees: b.serviceChargePaise / 100,
     totalRupees: b.totalPaise / 100,
+    additionalTaxRupees: b.additionalTaxPaise / 100,
+    billNo: b.billNo ?? undefined,
+    gstPercent: b.gstPercent,
+    additionalTaxPercent: b.additionalTaxPercent,
+    serviceChargePercent: b.serviceChargePercent,
     paymentMethod: b.paymentMethod,
     paidAt: b.paidAt ? b.paidAt.getTime() : null,
     createdAt: b.createdAt.getTime(),
@@ -135,13 +140,24 @@ function buildSummary(
 
 // ---- reads ----------------------------------------------------------------
 
+/** Adds each bill's human-readable order number (one extra query for the whole list). */
+async function withOrderNos(list: Bill[]): Promise<Bill[]> {
+  if (list.length === 0) return list;
+  const rows = await db
+    .select({ id: orders.id, orderNo: orders.orderNo })
+    .from(orders)
+    .where(inArray(orders.id, [...new Set(list.map((b) => b.orderId))]));
+  const byId = new Map(rows.map((r) => [r.id, r.orderNo ?? undefined]));
+  return list.map((b) => ({ ...b, orderNo: byId.get(b.orderId) }));
+}
+
 export async function listBillsDb(restaurantId: string): Promise<Bill[]> {
   const rows = await db
     .select()
     .from(bills)
     .where(eq(bills.restaurantId, restaurantId))
     .orderBy(desc(bills.createdAt));
-  return rows.map(toBill);
+  return withOrderNos(rows.map(toBill));
 }
 
 export async function getBillDb(restaurantId: string, billId: string): Promise<Bill | null> {
@@ -149,7 +165,7 @@ export async function getBillDb(restaurantId: string, billId: string): Promise<B
     .select()
     .from(bills)
     .where(and(eq(bills.id, billId), eq(bills.restaurantId, restaurantId)));
-  return row ? toBill(row) : null;
+  return row ? (await withOrderNos([toBill(row)]))[0] : null;
 }
 
 export async function getBillByOrderIdDb(
@@ -224,7 +240,13 @@ export async function issueBillDb(
   restaurantId: string,
   orderId: string,
   input: BillInput,
-  actorUserId?: string
+  actorUserId?: string,
+  /**
+   * The table device lets a customer ask for the bill while the order is still
+   * with the kitchen. The bill is then issued without moving the order out of
+   * the kitchen flow; it is marked "billed" when the payment settles.
+   */
+  opts: { allowBeforeServed?: boolean } = {}
 ): Promise<IssueBillResult> {
   return db.transaction(async (tx): Promise<IssueBillResult> => {
     const [order] = await tx
@@ -238,7 +260,10 @@ export async function issueBillDb(
     const [existing] = await tx.select().from(bills).where(eq(bills.orderId, order.id));
     if (existing) return { ok: false, reason: "already-billed", bill: toBill(existing) };
 
-    if (order.status !== "served") {
+    if (order.status === "cancelled") {
+      return { ok: false, reason: "not-found" };
+    }
+    if (order.status !== "served" && !opts.allowBeforeServed) {
       return { ok: false, reason: "not-served", status: order.status as OrderStatus };
     }
 
@@ -254,6 +279,15 @@ export async function issueBillDb(
     if (!table) return { ok: false, reason: "table-mismatch" };
 
     const { gstPercent, serviceChargePercent, discountRupees } = input;
+    const additionalTaxPercent = input.additionalTaxPercent ?? 0;
+
+    if (
+      !Number.isFinite(additionalTaxPercent) ||
+      additionalTaxPercent < 0 ||
+      additionalTaxPercent > RATE_LIMITS.additional
+    ) {
+      return { ok: false, reason: "invalid-gst" };
+    }
 
     if (
       !Number.isFinite(gstPercent) ||
@@ -277,12 +311,16 @@ export async function issueBillDb(
     const subtotal = items.reduce((s, l) => s + (l.qty * l.pricePaise) / 100, 0);
     if (subtotal <= 0) return { ok: false, reason: "empty-order" };
 
-    const gst = Math.round((subtotal * gstPercent) / 100);
-    const serviceCharge = Math.round((subtotal * serviceChargePercent) / 100);
-    if (discountRupees > subtotal + gst + serviceCharge) {
+    // One shared calculation (src/lib/bill-breakdown.ts) for preview and issue.
+    const calc = computeBillBreakdown(
+      items.map((l) => ({ qty: l.qty, priceRupees: l.pricePaise / 100 })),
+      { gstPercent, additionalTaxPercent, serviceChargePercent }
+    );
+    const { gst, additionalTax, serviceCharge } = calc;
+    if (discountRupees > calc.subtotal + gst + additionalTax + serviceCharge) {
       return { ok: false, reason: "discount-too-large" };
     }
-    const total = Math.max(0, subtotal + gst + serviceCharge - discountRupees);
+    const total = Math.max(0, calc.subtotal + gst + additionalTax + serviceCharge - discountRupees);
 
     const now = new Date();
     const [created] = await tx
@@ -296,25 +334,31 @@ export async function issueBillDb(
         gstPaise: gst * 100,
         discountPaise: discountRupees * 100,
         serviceChargePaise: serviceCharge * 100,
+        additionalTaxPaise: additionalTax * 100,
+        gstPercent,
+        additionalTaxPercent,
+        serviceChargePercent,
         totalPaise: Math.round(total * 100),
         createdAt: now,
         updatedAt: now,
       })
       .returning();
 
-    await tx
-      .update(orders)
-      .set({ status: "billed", statusUpdatedAt: now, updatedAt: now })
-      .where(eq(orders.id, order.id));
+    if (order.status === "served") {
+      await tx
+        .update(orders)
+        .set({ status: "billed", statusUpdatedAt: now, updatedAt: now })
+        .where(eq(orders.id, order.id));
 
-    await tx.insert(orderEvents).values({
-      id: randomUUID(),
-      restaurantId,
-      orderId: order.id,
-      fromStatus: "served",
-      toStatus: "billed",
-      actorUserId: actorUserId ?? null,
-    });
+      await tx.insert(orderEvents).values({
+        id: randomUUID(),
+        restaurantId,
+        orderId: order.id,
+        fromStatus: "served",
+        toStatus: "billed",
+        actorUserId: actorUserId ?? null,
+      });
+    }
 
     return { ok: true, bill: toBill(created) };
   });
@@ -354,6 +398,9 @@ export async function getBillReceiptDb(
       gstPaise: bill.gstPaise,
       discountPaise: bill.discountPaise,
       serviceChargePaise: bill.serviceChargePaise,
+      additionalTaxPaise: bill.additionalTaxPaise,
+      billNo: bill.billNo,
+      orderNo: order?.orderNo ?? null,
       totalPaise: bill.totalPaise,
       paidAt: bill.paidAt,
       paymentMethod: bill.paymentMethod,
@@ -522,6 +569,21 @@ export async function recordBillPaymentDb(
           .returning();
         finalBill = toBill(updated);
 
+        // A settled bill closes its order (covers bills issued before serving).
+        if (order.status !== "billed" && order.status !== "cancelled") {
+          await tx
+            .update(orders)
+            .set({ status: "billed", statusUpdatedAt: now, updatedAt: now })
+            .where(eq(orders.id, order.id));
+          await tx.insert(orderEvents).values({
+            id: randomUUID(),
+            restaurantId,
+            orderId: order.id,
+            fromStatus: order.status,
+            toStatus: "billed",
+          });
+        }
+
         // Release the table only when nothing else is active on it.
         const active = await tx
           .select({ id: orders.id })
@@ -670,4 +732,50 @@ export async function getDailyCollectionDb(
     netRupees: grossRupees - refundedRupees,
     paymentCount,
   };
+}
+// ---- keep an unpaid bill in step with its order ---------------------------
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Recomputes the totals of an UNPAID, un-part-paid bill after more items were
+ * added to its order. Uses the rates frozen on the bill when it was issued
+ * (never today's settings), so tax is not recalculated retroactively. A bill
+ * that is paid, or has any payment, is never touched.
+ */
+export async function recomputeUnpaidBillTx(tx: Tx, orderId: string): Promise<void> {
+  const [bill] = await tx.select().from(bills).where(eq(bills.orderId, orderId)).for("update");
+  if (!bill || bill.paidAt !== null) return;
+
+  const paid = await tx.select({ id: payments.id }).from(payments).where(eq(payments.billId, bill.id));
+  if (paid.length > 0) return;
+
+  const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  const subtotalPaise = items.reduce((s, l) => s + l.qty * l.pricePaise, 0);
+
+  // Legacy bills (issued before rates were stored) fall back to their effective rates.
+  const ratio = (paise: number) =>
+    bill.subtotalPaise > 0 ? Math.round((paise / bill.subtotalPaise) * 10000) / 100 : 0;
+  const calc = computeBillBreakdown(
+    items.map((l) => ({ qty: l.qty, priceRupees: l.pricePaise / 100 })),
+    {
+      gstPercent: bill.gstPercent ?? ratio(bill.gstPaise),
+      additionalTaxPercent: bill.additionalTaxPercent ?? ratio(bill.additionalTaxPaise),
+      serviceChargePercent: bill.serviceChargePercent ?? ratio(bill.serviceChargePaise),
+    },
+    bill.discountPaise / 100
+  );
+
+  await tx
+    .update(bills)
+    .set({
+      subtotalPaise: Math.round(subtotalPaise),
+      gstPaise: calc.gst * 100,
+      additionalTaxPaise: calc.additionalTax * 100,
+      serviceChargePaise: calc.serviceCharge * 100,
+      discountPaise: calc.discount * 100,
+      totalPaise: calc.total * 100,
+      updatedAt: new Date(),
+    })
+    .where(eq(bills.id, bill.id));
 }

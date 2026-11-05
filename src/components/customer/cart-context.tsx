@@ -24,6 +24,8 @@ export type CartLine = {
   name: string;
   priceRupees: number;
   qty: number;
+  /** Set on lines confirmed by the server: which ordering round they belong to. */
+  round?: number;
 };
 
 type CartContextValue = {

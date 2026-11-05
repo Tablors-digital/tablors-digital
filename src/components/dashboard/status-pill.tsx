@@ -1,6 +1,14 @@
 import type { OrderStatus } from "@/server/modules/demo-store/store";
 
-const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; dot: string }> = {
+type PillConfig = { label: string; className: string; dot: string };
+
+const CANCELLED: PillConfig = {
+  label: "Cancelled",
+  className: "border-red-500/30 bg-red-500/10 text-red-400",
+  dot: "bg-red-400",
+};
+
+const STATUS_CONFIG: Record<OrderStatus, PillConfig> = {
   new: {
     label: "New",
     className: "border-[var(--ov-gold)]/30 bg-[var(--ov-gold)]/10 text-[var(--ov-gold)]",
@@ -29,7 +37,10 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; dot
 };
 
 export function StatusPill({ status, pulse = false }: { status: OrderStatus; pulse?: boolean }) {
-  const config = STATUS_CONFIG[status];
+  // "cancelled" is a real database status; never let an unknown status crash the page.
+  const config: PillConfig =
+    (STATUS_CONFIG as Record<string, PillConfig>)[status] ??
+    (status === ("cancelled" as string) ? CANCELLED : { label: String(status), className: STATUS_CONFIG.served.className, dot: STATUS_CONFIG.served.dot });
   return (
     <span
       className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium ${config.className}`}

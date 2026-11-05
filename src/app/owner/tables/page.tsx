@@ -27,6 +27,10 @@ import {
 } from "@/server/modules/demo-store/table-activity";
 import { createTableAction } from "@/server/modules/tables/actions";
 import {
+  releaseTableAction,
+  reserveTableAction,
+} from "@/server/modules/tables/manage-actions";
+import {
   ReservationsManager,
   type ReservationRow,
 } from "../reservations/reservations-manager";
@@ -456,6 +460,44 @@ function TableCard({
               Reserve this table →
             </Link>
           )}
+        </div>
+      )}
+
+      {/* Quick actions: Reserve Table / Mark Table Available (instant, synced to the customer device) */}
+      {canReserve && (state === "available" || state === "reserved" || state === "seated") && (
+        <div className="flex flex-wrap gap-2 border-t border-[var(--color-border)] px-5 py-3">
+          {state === "available" && (
+            <form action={reserveTableAction}>
+              <input type="hidden" name="tableId" value={table.id} />
+              <input type="hidden" name="returnTo" value="list" />
+              <button type="submit" className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:border-[var(--color-radium-500)]">
+                Reserve Table
+              </button>
+            </form>
+          )}
+{state !== "available" && (
+  <form action={releaseTableAction}>
+    <input type="hidden" name="tableId" value={table.id} />
+    <input type="hidden" name="returnTo" value="list" />
+
+    <label className="flex items-center gap-2 text-xs">
+      <input
+        type="checkbox"
+        name="confirmActiveOrderRelease"
+        value="yes"
+        required
+      />
+      Confirm table release
+    </label>
+
+    <button
+      type="submit"
+      className="mt-2 rounded-md border border-[var(--color-radium-500)] px-3 py-2 text-xs font-medium"
+    >
+      Mark Table Available
+    </button>
+  </form>
+)}
         </div>
       )}
 

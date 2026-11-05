@@ -18,7 +18,7 @@ import {
   getTableByIdDb,
   setTableStatusDb,
 } from "@/server/modules/data/tables-db";
-import { notify } from "@/server/modules/notifications/store";
+import { notifyTableReserved } from "@/server/modules/notifications/events";
 
 export type ReservationActionResult = { ok: true } | { ok: false; error: string };
 
@@ -83,12 +83,10 @@ export async function reserveAction(input: unknown): Promise<ReservationActionRe
         : "Table not found."
     );
   }
-  await notify({
-    type: "TABLE_RESERVED",
-    title: "Table reserved",
-    message: `Table ${result.reservation.tableId} reserved for ${formatTimeLabel(result.reservation.reservedFor)}.`,
+  await notifyTableReserved({
     tableId: result.reservation.tableId,
-    dedupeKey: `table-reserved:${result.reservation.id}`,
+    reservationId: result.reservation.id,
+    guest: `${data.guestName} at ${formatTimeLabel(result.reservation.reservedFor)}`,
   });
  
   refresh();

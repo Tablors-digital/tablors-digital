@@ -2,6 +2,7 @@ import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import { getTablesCached, listActiveOrdersCached } from "@/server/modules/data/request-reads";
 import { StatusPill } from "./status-pill";
 import { SectionHeader } from "./section-header";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 function timeAgo(createdAt: number): string {
   const minutes = Math.max(0, Math.round((Date.now() - createdAt) / 60000));
@@ -41,7 +42,7 @@ export async function LiveOrdersPanel() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-[var(--ov-text)]">{table?.label ?? order.tableId}</p>
-                  <span className="text-[11px] text-[var(--ov-muted)]">#{order.id}</span>
+                  <span className="text-[11px] text-[var(--ov-muted)]">{formatOrderNo(order.orderNo)}</span>
                   {table?.waiterCalled && (
                     <span className="text-[11px] font-medium text-[var(--ov-gold)]">🔔 waiter</span>
                   )}

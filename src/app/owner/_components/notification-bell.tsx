@@ -8,11 +8,11 @@ interface Item { id: string; type: string; title: string; message: string; at: s
 
 const COLOR: Record<Item["severity"], string> = { info: "text-zinc-400", warning: "text-amber-400", critical: "text-red-400" };
 const ICON: Record<string, LucideIcon> = {
-  order_new: ShoppingBag, payment_received: IndianRupee, item_unavailable: UtensilsCrossed, table_reserved: CalendarCheck,
+  order_new: ShoppingBag, order_added: ShoppingBag, waiter_call: Bell, payment_received: IndianRupee, item_unavailable: UtensilsCrossed, table_reserved: CalendarCheck,
   order_cancelled: Ban, device_offline: WifiOff, device_low_battery: BatteryLow, kitchen_order_delayed: Clock,
   offer_created: Tag, loyalty_points_earned: Gift,
 };
-const POLL_MS = 30_000;
+const POLL_MS = 5_000;
 
 function ago(iso: string): string {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -45,14 +45,8 @@ export function NotificationBell({ allHref = "/owner/notifications" }: { allHref
     const t = setInterval(() => { if (document.visibilityState === "visible") void load(); }, POLL_MS);
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
-    return () => { clearTimeout(first); clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [load]);
-
-  // Refresh immediately when the server pushes a new notification (existing SSE stream).
-  useEffect(() => {
-    const es = new EventSource("/api/notifications/stream");
-    es.onmessage = () => { void load(); };
-    return () => es.close();
+    window.addEventListener("tablors:notifications-changed", onFocus);
+    return () => { clearTimeout(first); clearInterval(t); window.removeEventListener("focus", onFocus); window.removeEventListener("tablors:notifications-changed", onFocus); };
   }, [load]);
 
   useEffect(() => {

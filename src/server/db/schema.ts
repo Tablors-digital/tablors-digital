@@ -6,6 +6,7 @@ import {
   pgEnum,
   text,
   integer,
+  real,
   boolean,
   timestamp,
  
@@ -299,6 +300,7 @@ export const orders = pgTable(
     sessionId: text("session_id"),
     tableId: text("table_id").notNull(),
     deviceId: text("device_id"),
+    orderNo: integer("order_no"),
     status: orderStatus("status").notNull().default("new"),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -331,6 +333,7 @@ export const orderItems = pgTable(
     nameSnapshot: text("name_snapshot").notNull(),
     categorySnapshot: text("category_snapshot"),
     qty: integer("qty").notNull(),
+    round: integer("round").notNull().default(1),
     pricePaise: integer("price_paise").notNull(),
     basePricePaise: integer("base_price_paise"),
     discountPercent: integer("discount_percent"),
@@ -400,6 +403,11 @@ export const bills = pgTable(
     discountPaise: integer("discount_paise").notNull().default(0),
     serviceChargePaise: integer("service_charge_paise").notNull().default(0),
     totalPaise: integer("total_paise").notNull(),
+    billNo: integer("bill_no"),
+    additionalTaxPaise: integer("additional_tax_paise").notNull().default(0),
+    gstPercent: real("gst_percent"),
+    additionalTaxPercent: real("additional_tax_percent"),
+    serviceChargePercent: real("service_charge_percent"),
     paymentMethod: paymentMethod("payment_method"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -683,3 +691,25 @@ export const loyaltyBillLinks = pgTable("loyalty_bill_links", {
   customerId: text("customer_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const paymentIntents = pgTable(
+  "payment_intents",
+  {
+    id: text("id").primaryKey(),
+    restaurantId: text("restaurant_id").notNull(),
+    billId: text("bill_id").notNull(),
+    orderId: text("order_id").notNull(),
+    tableId: text("table_id").notNull(),
+    provider: text("provider").notNull(),
+    providerRef: text("provider_ref").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status").notNull().default("created"),
+    qrImageUrl: text("qr_image_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("payment_intents_provider_ref_unique").on(t.provider, t.providerRef),
+    index("payment_intents_bill_idx").on(t.billId),
+  ],
+).enableRLS();

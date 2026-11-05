@@ -1,6 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "node:crypto";
+
+import { recordBillPaymentDb } from "@/server/modules/billing/db-billing";
+import { onBillPaymentConfirmed } from "@/server/modules/financial-pots/payment-hook";
 
 import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import {
@@ -9,16 +13,17 @@ import {
   getBillReceiptDb,
   issueBillDb,
   type BillReceipt,
-  recordBillPaymentDb,
 } from "@/server/modules/billing/db-billing";
 import { getOrderFromDb } from "@/server/modules/orders/db-orders";
 import { getTableByIdDb } from "@/server/modules/data/tables-db";
 import {
-  DEFAULT_GST_PERCENT,
   type Bill,
   type BillPaymentSummary,
 } from "@/server/modules/demo-store/store";
-import { onBillPaymentConfirmed } from "@/server/modules/financial-pots/payment-hook";
+import { getSettings } from "@/server/modules/demo-store/settings";
+import { getGatewayConfig, createUpiQr } from "@/server/modules/payments/gateway";
+import { closeIntents, getOpenIntent, saveIntent } from "@/server/modules/payments/intents";
+import { formatBillNo, formatOrderNo, tableNumberFromLabel } from "@/lib/order-number";
 import {
   getBillLoyaltyViewDb,
   holdRedemptionDb,
@@ -27,24 +32,43 @@ import {
   type BillLoyaltyView,
 } from "@/server/modules/loyalty-db/db-loyalty";
 
-const UPI_ID = process.env.RESTAURANT_UPI_ID?.trim() ?? "";
-const RESTAURANT_NAME = process.env.PUBLIC_COMPANY_NAME?.trim() || "Tablor's";
-
 export type CustomerBillState = {
   billId: string;
   totalRupees: number;
   paidRupees: number;
   remainingRupees: number;
   status: BillPaymentSummary["status"];
-  upiConfigured: boolean;
-  upiUri: string | null;
-  qrUrl: string | null;
   restaurantName: string;
-  /** Itemised receipt built server-side from stored order/bill/payment rows. */
   receipt: BillReceipt | null;
-  /** Loyalty points / rewards for the member identified on this bill. */
   loyalty: BillLoyaltyView;
+
+  // Payment QR details
+  upiUri: string | null;
+  upiConfigured: boolean;
+  qrUrl: string | null;
 };
+
+export type PaymentQrResult =
+  | {
+      ok: true;
+      mode: "live";
+      imageUrl: string;
+      amountRupees: number;
+      restaurantName: string;
+    }
+  | {
+      ok: true;
+      mode: "demo";
+      qrValue: string;
+      amountRupees: number;
+      restaurantName: string;
+    }
+  | {
+      ok: false;
+      code: "no-bill" | "paid" | "not-configured" | "gateway";
+      error: string;
+      missing?: string[];
+    };
 
 export type CustomerOrderState =
   | {
@@ -63,22 +87,13 @@ async function buildBillState(bill: Bill): Promise<CustomerBillState> {
       remainingRupees: bill.totalRupees,
       status: "unpaid",
     } as BillPaymentSummary);
-  const upiUri = UPI_ID
-    ? `upi://pay?pa=${encodeURIComponent(UPI_ID)}&pn=${encodeURIComponent(
-        RESTAURANT_NAME
-      )}&am=${encodeURIComponent(String(summary.remainingRupees))}&cu=INR&tn=${encodeURIComponent(
-        `Bill ${bill.id}`
-      )}`
-    : null;
 
-  const receipt = await getBillReceiptDb(DEMO_RESTAURANT_ID, bill.id);
-  const loyalty = await getBillLoyaltyViewDb(DEMO_RESTAURANT_ID, bill.tableId, bill.id);
-
-  const qrUrl = upiUri
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
-        upiUri
-      )}`
-    : null;
+  const [receipt, loyalty, settings, openIntent] = await Promise.all([
+    getBillReceiptDb(DEMO_RESTAURANT_ID, bill.id),
+    getBillLoyaltyViewDb(DEMO_RESTAURANT_ID, bill.tableId, bill.id),
+    getSettings(DEMO_RESTAURANT_ID),
+    getOpenIntent(bill.id),
+  ]);
 
   return {
     billId: bill.id,
@@ -86,12 +101,14 @@ async function buildBillState(bill: Bill): Promise<CustomerBillState> {
     paidRupees: summary.paidRupees,
     remainingRupees: summary.remainingRupees,
     status: summary.status,
-    upiConfigured: Boolean(UPI_ID),
-    upiUri,
-    qrUrl,
-    restaurantName: RESTAURANT_NAME,
+    restaurantName: settings.name,
     receipt,
     loyalty,
+
+    // Payment QR details
+    upiUri: null,
+    upiConfigured: getGatewayConfig().configured,
+    qrUrl: openIntent?.qrImageUrl ?? null,
   };
 }
 
@@ -128,140 +145,253 @@ export async function getCustomerOrderState(
 }
 
 /**
- * Customer-facing bill generation for the physical table device.
- * It can only bill the exact order belonging to the supplied table and only
- * after the kitchen has marked that order SERVED. The restaurant's configured
- * default GST is used; owner billing remains the place for manual discounts
- * and service-charge adjustments.
+ * Customer-facing bill generation for the table device. It bills the exact
+ * open order of the supplied table (ALL confirmed rounds, one combined bill).
+ * Rates come from the owner's current billing settings and are frozen on the
+ * bill; if more items are confirmed before payment the same bill is
+ * recomputed with those same frozen rates. Manual discounts stay with the owner.
  */
 export async function generateCustomerBill(
   tableId: string,
   orderId: string
 ): Promise<
-  | { ok: true; bill: CustomerBillState }
+  | { ok: true; billNumber: string }
   | { ok: false; error: string }
 > {
   const validated = await validateCustomerOrder(tableId, orderId);
   if (!validated.ok) return { ok: false, error: validated.error };
 
   const existing = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
-  if (existing) {
-    return { ok: true, bill: await buildBillState(existing) };
-  }
+  if (existing) return { ok: true, billNumber: formatBillNo(existing.billNo) };
 
-  if (validated.order.status !== "served") {
-    return {
-      ok: false,
-      error: `Your order is ${validated.order.status}. The bill becomes available after it is served.`,
-    };
-  }
+  const settings = await getSettings(DEMO_RESTAURANT_ID);
 
-  const result = await issueBillDb(DEMO_RESTAURANT_ID, orderId, {
-    gstPercent: DEFAULT_GST_PERCENT,
-    serviceChargePercent: 0,
-    discountRupees: 0,
-  });
+  const result = await issueBillDb(
+    DEMO_RESTAURANT_ID,
+    orderId,
+    {
+      gstPercent: settings.gstRatePercent,
+      additionalTaxPercent: settings.additionalTaxPercent,
+      serviceChargePercent: settings.serviceChargePercent,
+      discountRupees: 0,
+    },
+    undefined,
+    { allowBeforeServed: true }
+  );
 
   if (!result.ok) {
     switch (result.reason) {
       case "already-billed":
-        return { ok: true, bill: await buildBillState(result.bill) };
-      case "not-served":
-        return { ok: false, error: "The bill is available after your order is served." };
+        return { ok: true, billNumber: formatBillNo(result.bill.billNo) };
+      case "invalid-gst":
+      case "invalid-service-charge":
+        return { ok: false, error: "Billing rates are not configured correctly. Please ask the staff." };
       default:
         return { ok: false, error: "We could not generate the bill. Please ask your waiter." };
     }
   }
 
-  revalidatePath(`/customer/${tableId}`);
   revalidatePath("/owner/billing");
   revalidatePath("/owner/payments");
   revalidatePath("/owner");
 
-  return { ok: true, bill: await buildBillState(result.bill) };
+  return { ok: true, billNumber: formatBillNo(result.bill.billNo) };
 }
 
 /**
- * Demo/customer UPI confirmation. The customer must provide the UTR/reference
- * from the UPI app. No fake payment is created when UPI is not configured.
- * A real payment gateway can replace this action later without changing the
- * customer UI contract.
+ * Creates a real Razorpay QR when configured.
+ * If Razorpay is not configured, returns a clearly labelled demo reference.
  */
-export async function recordCustomerUpiPayment(
+export async function createPaymentQr(
   tableId: string,
-  orderId: string,
-  transactionId: string
-): Promise<
-  | { ok: true; bill: CustomerBillState }
-  | { ok: false; error: string }
-> {
+  orderId: string
+): Promise<PaymentQrResult> {
   const validated = await validateCustomerOrder(tableId, orderId);
-  if (!validated.ok) return { ok: false, error: validated.error };
 
-  if (!UPI_ID) {
+  if (!validated.ok) {
     return {
       ok: false,
-      error: "UPI payments are not configured for this restaurant yet.",
+      code: "no-bill",
+      error: validated.error,
     };
   }
 
   const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
+
   if (!bill) {
-    return { ok: false, error: "Generate your bill first." };
+    return {
+      ok: false,
+      code: "no-bill",
+      error: "Generate your bill first.",
+    };
   }
 
-  const summary = await getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, bill.id);
-  if (!summary) return { ok: false, error: "Generate your bill first." };
+  const summary = await getBillPaymentSummaryDb(
+    DEMO_RESTAURANT_ID,
+    bill.id
+  );
 
-  if (summary.status === "paid" || summary.status === "refunded") {
-    return { ok: true, bill: await buildBillState(bill) };
+  if (!summary || summary.remainingRupees <= 0) {
+    return {
+      ok: false,
+      code: "paid",
+      error: "This bill is already paid.",
+    };
   }
 
-  const cleanReference = transactionId.trim();
-  if (!cleanReference) {
-    return { ok: false, error: "Enter the UTR / transaction ID from your UPI app." };
+  const settings = await getSettings(DEMO_RESTAURANT_ID);
+  const cfg = getGatewayConfig();
+
+  // Demo mode when Razorpay credentials are unavailable.
+  if (!cfg.configured) {
+    return {
+      ok: true,
+      mode: "demo",
+      qrValue: JSON.stringify({
+        type: "TABLOR_DEMO_PAYMENT",
+        billId: bill.id,
+        orderId,
+        tableId,
+        amount: summary.remainingRupees,
+      }),
+      amountRupees: summary.remainingRupees,
+      restaurantName: settings.name,
+    };
   }
 
-  const result = await recordBillPaymentDb(DEMO_RESTAURANT_ID, bill.id, {
-    method: "qr", // Cash and QR are the only payment methods; UPI/QR payments are recorded as QR.
-    amountRupees: summary.remainingRupees,
-    transactionId: cleanReference,
+  // Real Razorpay QR.
+  const amountPaise = Math.round(summary.remainingRupees * 100);
+
+  const open = await getOpenIntent(bill.id);
+
+  if (open && open.amountPaise === amountPaise && open.qrImageUrl) {
+    return {
+      ok: true,
+      mode: "live",
+      imageUrl: open.qrImageUrl,
+      amountRupees: amountPaise / 100,
+      restaurantName: settings.name,
+    };
+  }
+
+  if (open) {
+    await closeIntents(bill.id, "superseded");
+  }
+
+  const tableNo = tableNumberFromLabel(validated.table.label);
+
+  const created = await createUpiQr(cfg, {
+    amountPaise,
+    name: `${settings.name} Table ${tableNo}`,
+    description: `${formatOrderNo(validated.order.orderNo)} / ${formatBillNo(bill.billNo)} / Table ${tableNo}`,
+    notes: {
+      bill_id: bill.id,
+      order_id: orderId,
+      table_id: tableId,
+      order_no: formatOrderNo(validated.order.orderNo),
+    },
   });
 
-  if (!result.ok) {
-    switch (result.reason) {
-      case "missing-reference":
-        return { ok: false, error: "UPI payment requires a transaction ID." };
-      case "invalid-reference":
-        return { ok: false, error: "Enter a valid UTR / transaction ID." };
-      case "duplicate-reference":
-        return { ok: false, error: "That transaction ID has already been used." };
-      case "already-paid":
-        return { ok: true, bill: await buildBillState(result.bill) };
-      case "overpayment":
-        return { ok: false, error: "The payment amount exceeds the remaining balance." };
-      default:
-        return { ok: false, error: "We could not record the payment. Please ask your waiter." };
-    }
+  if (!created.ok) {
+    return {
+      ok: false,
+      code: "gateway",
+      error: created.error,
+    };
   }
 
-  if (result.settled && result.bill.paymentMethod !== null && result.bill.totalRupees > 0) {
-    try {
-      await onBillPaymentConfirmed(result.bill.id, result.bill.paymentMethod);
-    } catch (error) {
-      console.error("Payment hook failed for customer payment", result.bill.id, error);
-    }
-  }
+  await saveIntent({
+    restaurantId: DEMO_RESTAURANT_ID,
+    billId: bill.id,
+    orderId,
+    tableId,
+    provider: "razorpay",
+    providerRef: created.qr.id,
+    amountPaise,
+    qrImageUrl: created.qr.imageUrl,
+  });
 
-  revalidatePath(`/customer/${tableId}`);
-  revalidatePath("/owner/payments");
-  revalidatePath("/owner/billing");
-  revalidatePath("/owner/tables");
-  revalidatePath("/owner");
-
-  return { ok: true, bill: await buildBillState(result.bill) };
+  return {
+    ok: true,
+    mode: "live",
+    imageUrl: created.qr.imageUrl,
+    amountRupees: amountPaise / 100,
+    restaurantName: settings.name,
+  };
 }
 
+/**
+ * Test-only payment simulation.
+ * This is rejected whenever Razorpay is configured.
+ */
+export async function simulateDemoPayment(
+  tableId: string,
+  orderId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const validated = await validateCustomerOrder(tableId, orderId);
+
+  if (!validated.ok) {
+    return { ok: false, error: validated.error };
+  }
+
+  if (getGatewayConfig().configured) {
+    return {
+      ok: false,
+      error: "Demo payments are disabled while live payments are configured.",
+    };
+  }
+
+  const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
+
+  if (!bill) {
+    return { ok: false, error: "Bill not found." };
+  }
+
+  const summary = await getBillPaymentSummaryDb(
+    DEMO_RESTAURANT_ID,
+    bill.id
+  );
+
+  if (!summary || summary.remainingRupees <= 0) {
+    return { ok: false, error: "This bill is already settled." };
+  }
+
+  const transactionId = `DEMO-${randomUUID().replace(/-/g, "")}`;
+
+  const payment = await recordBillPaymentDb(
+    DEMO_RESTAURANT_ID,
+    bill.id,
+    {
+      method: "qr",
+      amountRupees: summary.remainingRupees,
+      transactionId,
+      idempotencyKey: `demo-payment-${bill.id}`,
+    }
+  );
+
+  if (!payment.ok) {
+    return {
+      ok: false,
+      error: "Could not record demo payment. Please try again.",
+    };
+  }
+  try {
+  await onBillPaymentConfirmed(bill.id, "qr");
+} catch (error) {
+  console.error(
+    "[payment] Financial Pots confirmation failed:",
+    bill.id,
+    error
+  );
+}
+
+  revalidatePath("/owner");
+  revalidatePath("/owner/billing");
+  revalidatePath("/owner/payments");
+  revalidatePath("/owner/tables");
+
+  return { ok: true };
+}
 // ---- loyalty (customer device) -------------------------------------------------
 
 type LoyaltyResult =

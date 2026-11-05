@@ -12,7 +12,7 @@ import {
   recordBillPaymentDb,
   refundPaymentDb,
 } from "@/server/modules/billing/db-billing";
-import { notify } from "@/server/modules/notifications/store";
+import { notifyPaymentReceived } from "@/server/modules/notifications/events";
 import {
   onBillPaymentConfirmed,
   onPaymentRefunded,
@@ -175,14 +175,13 @@ export async function recordPaymentAction(
     const table = tableText(result.bill);
     const paidAt = paymentDateTime(new Date());
 
-    await notify({
-      type: "PAYMENT_RECEIVED",
-      title: table ? `Payment received — ${table}` : "Payment received",
-      message:
-        `${table ? `${table}: ` : ""}Bill paid` +
-        `${result.bill.paymentMethod ? ` via ${result.bill.paymentMethod}` : ""}: ` +
-        `₹${result.bill.totalRupees}. Paid on ${paidAt}.`,
-      dedupeKey: `payment:${result.bill.id}`,
+    void table;
+    void paidAt;
+    await notifyPaymentReceived({
+      tableId: result.bill.tableId,
+      orderId: result.bill.orderId,
+      billId: result.bill.id,
+      amountRupees: result.bill.totalRupees,
     });
   }
 

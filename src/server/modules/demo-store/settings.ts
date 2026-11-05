@@ -16,6 +16,9 @@ export interface RestaurantSettings {
   closingTime: string;
   gstRatePercent: number;
   serviceChargePercent: number;
+  /** Any other applicable levy (e.g. state cess), % of subtotal. 0 = off. */
+  additionalTaxPercent: number;
+  additionalTaxLabel: string;
   pricesIncludeTax: boolean;
   currency: "INR" | "USD" | "EUR" | "GBP" | "AED";
   language: "en" | "hi" | "te";
@@ -46,6 +49,8 @@ export const defaults = (): RestaurantSettings => ({
   closingTime: "23:00",
   gstRatePercent: 5,
   serviceChargePercent: 0,
+  additionalTaxPercent: 0,
+  additionalTaxLabel: "Additional tax",
   pricesIncludeTax: false,
   currency: "INR",
   language: "en",

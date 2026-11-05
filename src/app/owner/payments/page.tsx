@@ -24,6 +24,7 @@ import {
   recordPaymentAction,
   refundPaymentAction,
 } from "@/server/modules/payments/actions";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,7 @@ export default async function PaymentsPage({
   const selectedDay = resolveDay(date);
   const dayPayments = payments.filter((p) => istDay(p.paidAt) === selectedDay);
   const summaries = await getBillSummariesDb(DEMO_RESTAURANT_ID, bills);
+  const billByIdForNos = new Map(bills.map((b) => [b.id, b]));
   const getBillPaymentSummary = (b: (typeof bills)[number]) => summaries.get(b.id)!;
 
   const outstanding = bills.filter((bill) => {
@@ -344,7 +346,7 @@ export default async function PaymentsPage({
                         {table?.label ?? bill.tableId}
                       </p>
                       <p className="text-xs text-[var(--color-text-muted)]">
-                        Order #{bill.orderId} · Bill #{bill.id}
+                        {formatOrderNo(bill.orderNo)} · {formatBillNo(bill.billNo)}
                       </p>
                     </div>
 
@@ -563,14 +565,14 @@ export default async function PaymentsPage({
                         {table?.label ?? payment.tableId}
                       </td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)]">
-                        #{payment.orderId}
+                        {formatOrderNo(billByIdForNos.get(payment.billId)?.orderNo)}
                       </td>
                       <td className="px-4 py-3">
                         <Link
                           href={`/owner/billing/${payment.billId}`}
                           className="text-[var(--color-text-secondary)] underline-offset-2 hover:underline"
                         >
-                          #{payment.billId}
+                          {formatBillNo(billByIdForNos.get(payment.billId)?.billNo)}
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-[var(--color-text-secondary)]">
@@ -698,10 +700,10 @@ export default async function PaymentsPage({
                       {formatDateTime(refund.refundedAt)}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">
-                      #{refund.paymentId}
+                      Refund
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">
-                      #{refund.billId}
+                      {formatBillNo(billByIdForNos.get(refund.billId)?.billNo)}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">
                       {formatRupees(refund.amountRupees)}

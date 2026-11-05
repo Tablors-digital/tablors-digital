@@ -17,6 +17,7 @@ import {
   DEFAULT_GST_PERCENT,
 } from "@/server/modules/demo-store/store";
 import { createBill } from "@/server/modules/billing/actions";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 // Orders and bills live in server memory — never prerender.
 export const dynamic = "force-dynamic";
@@ -251,7 +252,7 @@ export default async function BillingPage({ searchParams }: PageProps) {
                       {table?.label ?? order.tableId}
                     </p>
                     <p className="text-xs text-[var(--color-text-muted)]">
-                      Order #{order.id}
+                      {formatOrderNo(order.orderNo)}
                     </p>
                   </div>
 
@@ -379,7 +380,7 @@ export default async function BillingPage({ searchParams }: PageProps) {
                       className="border-b border-[var(--color-border)] last:border-0"
                     >
                       <td className="px-4 py-3 text-[var(--color-text-muted)]">
-                        #{bill.orderId}
+                        {formatOrderNo(bill.orderNo)}
                       </td>
 
                       <td className="px-4 py-3 text-[var(--color-text-secondary)]">

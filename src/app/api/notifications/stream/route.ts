@@ -48,7 +48,9 @@ export async function GET(req: Request) {
 
           for (const notification of fresh) {
             const at = new Date(notification.createdAt);
-            if (at > since) since = at;
+            // Postgres keeps microseconds, JS only milliseconds: step past this
+            // row, otherwise it is re-sent on every poll (repeat sounds/popups).
+            if (at.getTime() >= since.getTime()) since = new Date(at.getTime() + 1);
             controller.enqueue(
               encoder.encode(
                 `id: ${at.getTime()}\ndata: ${JSON.stringify(notification)}\n\n`,

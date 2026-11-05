@@ -1,33 +1,32 @@
 import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
-import { getBillByOrderIdDb } from "@/server/modules/billing/db-billing";
 import { getMenuDb } from "@/server/modules/data/menu-db";
-import { getTableByIdDb } from "@/server/modules/data/tables-db";
-import { getOrderFromDb } from "@/server/modules/orders/db-orders";
-import { getFeedbackByOrderId } from "@/server/modules/feedback/store";
-import { TableBanner } from "@/components/customer/table-banner";
+import { getTablesDb } from "@/server/modules/data/tables-db";
+import { getCustomerSnapshot } from "@/server/modules/customer/snapshot";
+import { TableTabs } from "@/components/customer/table-tabs";
 import { TableNotFound } from "@/components/customer/table-not-found";
 import { CartProvider } from "@/components/customer/cart-context";
-import { OrderCompletedPanel } from "@/components/customer/order-completed-panel";
 import { TablorDevice } from "@/components/customer/tablor-device";
 
 export const dynamic = "force-dynamic";
 
 export default async function CustomerTableMenuPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ tableId: string }>;
-  searchParams: Promise<{ order?: string }>;
 }) {
   const { tableId } = await params;
-  const { order: trackedOrderId } = await searchParams;
-  // Table and menu don't depend on each other: fetch together.
-  const [table, menu] = await Promise.all([
-    getTableByIdDb(DEMO_RESTAURANT_ID, tableId),
+
+  // Independent reads, fetched together. The snapshot is the same data the
+  // device then keeps in sync through /api/customer/[tableId]/state.
+  const [tables, menu, snapshot] = await Promise.all([
+    getTablesDb(DEMO_RESTAURANT_ID),
     getMenuDb(DEMO_RESTAURANT_ID),
+    getCustomerSnapshot(tableId),
   ]);
 
-  if (!table) {
+  const table = tables.find((t) => t.id === tableId);
+
+  if (!table || !snapshot) {
     return (
       <div>
         <TableNotFound tableId={tableId} />
@@ -35,47 +34,19 @@ export default async function CustomerTableMenuPage({
     );
   }
 
-  // If the customer is currently tracking a specific order (set via the
-  // ?order= param right after placing it), check THAT exact order's bill —
-  // never the table's "current" order, since the same table can be reused
-  // by a different customer once this one is paid up.
-  if (trackedOrderId) {
-    const trackedOrder = await getOrderFromDb(DEMO_RESTAURANT_ID, trackedOrderId);
-
-    if (trackedOrder && trackedOrder.tableId === tableId) {
-      const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, trackedOrderId);
-      const isPaid = Boolean(bill?.paymentMethod && bill?.paidAt);
-
-      if (isPaid) {
-        const feedback = await getFeedbackByOrderId(trackedOrderId);
-
-        return (
-          <div>
-            <TableBanner table={table} />
-            <div className="mt-6">
-              <OrderCompletedPanel
-                orderId={trackedOrderId}
-                tableId={tableId}
-                feedbackSubmitted={Boolean(feedback)}
-              />
-            </div>
-          </div>
-        );
-      }
-    }
-  }
-
   return (
     <CartProvider>
       <div>
-        <TableBanner table={table} />
+        <TableTabs tables={tables} currentTableId={table.id} />
 
         <div className="mt-4">
           <TablorDevice
+            // A fresh device per table: no state can leak between tables.
+            key={table.id}
             tableId={table.id}
-            tableLabel={table.label.replace(/[^0-9]/g, "") || table.label}
+            tableLabel={snapshot.table.number}
             items={menu}
-            initialTrackedOrderId={trackedOrderId ?? null}
+            initialSnapshot={snapshot}
           />
         </div>
       </div>

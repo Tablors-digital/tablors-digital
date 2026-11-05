@@ -3,6 +3,7 @@ import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import { getTablesCached, listAllOrdersCached } from "@/server/modules/data/request-reads";
 import { StatusPill } from "./status-pill";
 import { SectionHeader } from "./section-header";
+import { formatBillNo, formatOrderNo } from "@/lib/order-number";
 
 export async function RecentOrdersTable() {
   const [tables, allOrders] = await Promise.all([
@@ -44,7 +45,7 @@ export async function RecentOrdersTable() {
                 >
                   <td className="p-0">
                     <Link href={href} className="block py-2.5 pl-0 text-[var(--ov-text-secondary)]">
-                      #{order.id}
+                      {formatOrderNo(order.orderNo)}
                     </Link>
                   </td>
                   <td className="p-0">

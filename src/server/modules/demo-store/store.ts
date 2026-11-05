@@ -138,11 +138,16 @@ export type OrderLine = {
 
   discountPercent?: number;
 
+  /** Which ordering round (1, 2, ...) this line was confirmed in. */
+  round?: number;
+
 };
 
 
 
 export type Order = {
+  /** Human-readable number, e.g. 125 -> ORD-00125. */
+  orderNo?: number;
 
   id: string;
 
@@ -201,6 +206,20 @@ export type Bill = {
   serviceChargeRupees: number;
 
   totalRupees: number;
+
+  /** Extra applicable levy (e.g. cess), charged on the subtotal. */
+  additionalTaxRupees?: number;
+
+  /** Human-readable number, e.g. 125 -> BILL-00125. */
+  billNo?: number;
+
+  /** Human-readable number of the order this bill settles. */
+  orderNo?: number;
+
+  /** Rates frozen at issue time; later settings changes never touch this bill. */
+  gstPercent?: number | null;
+  additionalTaxPercent?: number | null;
+  serviceChargePercent?: number | null;
 
   paymentMethod: "cash" | "qr" | null;
 
@@ -2006,6 +2025,8 @@ export function isPaymentMethod(value: unknown): value is PaymentMethod {
 
 
 export type BillInput = {
+  /** Optional extra levy percent; defaults to 0. */
+  additionalTaxPercent?: number;
 
   gstPercent: number;
 

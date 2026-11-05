@@ -87,8 +87,28 @@ export function SettingsForm({ initial }: { initial: RestaurantSettings }) {
       </Section>
 
       <Section title="Tax, currency & language">
-        <Field label="GST rate (%)"><input type="number" min={0} max={50} step="0.5" className={input} value={s.gstRatePercent} onChange={(e) => set("gstRatePercent", Number(e.target.value))} /></Field>
-        <Field label="Service charge (%)"><input type="number" min={0} max={30} step="0.5" className={input} value={s.serviceChargePercent} onChange={(e) => set("serviceChargePercent", Number(e.target.value))} /></Field>
+        <Field label="GST rate (%)"><input type="number" min={0} max={28} step="0.5" className={input} value={s.gstRatePercent} onChange={(e) => set("gstRatePercent", Number(e.target.value))} /></Field>
+        <Field label="Service charge (%)"><input type="number" min={0} max={20} step="0.5" className={input} value={s.serviceChargePercent} onChange={(e) => set("serviceChargePercent", Number(e.target.value))} /></Field>
+        <Field label="Additional tax name">
+  <input
+    className={input}
+    value={s.additionalTaxLabel}
+    onChange={(e) => set("additionalTaxLabel", e.target.value)}
+    placeholder="Additional tax"
+  />
+</Field>
+
+<Field label="Additional tax rate (%)">
+  <input
+    type="number"
+    min={0}
+    max={28}
+    step="0.5"
+    className={input}
+    value={s.additionalTaxPercent}
+    onChange={(e) => set("additionalTaxPercent", Number(e.target.value))}
+  />
+</Field>
         <Field label="Currency">
           <select className={input} value={s.currency} onChange={(e) => set("currency", e.target.value as RestaurantSettings["currency"])}>
             {["INR", "USD", "EUR", "GBP", "AED"].map((c) => <option key={c}>{c}</option>)}

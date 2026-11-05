@@ -11,9 +11,9 @@ import type { CustomerBillState } from "@/server/modules/customer/actions";
  * from this dummy UPI ID so the flow can be shown.
  * Set DEMO_UPI_ENABLED to false once real UPI is configured.
  */
-const DEMO_UPI_ENABLED = true;
-const DEMO_UPI_ID = "demo@upi";
-const DEMO_PAYEE = "Demo Restaurant";
+export const DEMO_UPI_ENABLED = true;
+export const DEMO_UPI_ID = "demo@upi";
+export const DEMO_PAYEE = "Demo Restaurant";
 
 function rupees(value: number): string {
   return `₹${value.toLocaleString("en-IN")}`;
