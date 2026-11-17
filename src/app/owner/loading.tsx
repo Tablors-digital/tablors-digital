@@ -4,7 +4,7 @@
  */
 export default function OwnerLoading() {
   return (
-    <div className="space-y-6" role="status" aria-label="Loading">
+    <div className="space-y-4 sm:space-y-6" role="status" aria-label="Loading">
       <div className="h-10 w-64 animate-pulse rounded-lg bg-zinc-900" />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (

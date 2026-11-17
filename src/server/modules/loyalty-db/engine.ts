@@ -126,12 +126,11 @@ export function reversalPoints(input: {
   return Math.max(0, Math.min(target, input.earned) - input.alreadyReversed);
 }
 
-/** 10-digit Indian mobile number from common formats (+91, 0, spaces, dashes), else null. */
+/** 10-digit Indian mobile number from common formats (+91, 0091, 0, spaces, dashes), else null. */
 export function normalizePhone(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  let d = raw.replace(/\D/g, "");
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
+  let d = String(raw).replace(/\D/g, "").replace(/^0+/, ""); // drops 0 and 00 prefixes
   if (d.length === 12 && d.startsWith("91")) d = d.slice(2);
-  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
   return /^[6-9]\d{9}$/.test(d) ? d : null;
 }
 

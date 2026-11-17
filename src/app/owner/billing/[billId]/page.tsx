@@ -102,7 +102,7 @@ export default async function BillReceiptPage({ params }: PageProps) {
         </div>
       </div>
 
-      <div className="mx-auto mt-6 max-w-md rounded-[var(--radius-brand)] bg-white p-6 text-black">
+      <div className="mx-auto mt-6 max-w-md rounded-[var(--radius-brand)] bg-white p-3 sm:p-6 text-black">
         <div className="text-center">
           <p className="text-lg font-semibold">Tablor</p>
           <p className="text-xs text-neutral-600">{formatBillNo(bill.billNo)}</p>
@@ -134,7 +134,7 @@ export default async function BillReceiptPage({ params }: PageProps) {
           )}
         </div>
 
-        <table className="mt-3 w-full text-xs">
+        <table className="block max-w-full overflow-x-auto sm:table mt-3 w-full text-xs">
           <thead>
             <tr className="text-left text-neutral-600">
               <th className="py-1 font-normal">Item</th>

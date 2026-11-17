@@ -20,7 +20,7 @@ export function ProductIntro() {
   return (
     <section
       id="product"
-      className="snap-section border-t border-[var(--color-border)] px-6 py-24"
+      className="snap-section border-t border-[var(--color-border)] px-4 sm:px-6 py-12 sm:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <Reveal className="max-w-2xl">
@@ -37,7 +37,7 @@ export function ProductIntro() {
           </p>
         </Reveal>
 
-        <StaggerGroup className="mt-14 grid gap-10 md:grid-cols-3">
+        <StaggerGroup className="mt-14 grid gap-6 sm:gap-10 md:grid-cols-3">
           {highlights.map((item) => (
             <StaggerItem key={item.title}>
               <h3 className="text-lg text-[var(--color-text-primary)]">

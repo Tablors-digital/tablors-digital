@@ -20,7 +20,7 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
   const { card } = v;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Link href="/owner/pots" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
         <ArrowLeft className="h-4 w-4" /> Back to Pots
       </Link>
@@ -34,22 +34,22 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
           <p className="text-xs uppercase tracking-wider text-zinc-400">Current balance</p>
           <p className="mt-2 text-2xl font-extrabold text-[var(--radium-green)]">{formatINR(card.balance)}</p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
           <p className="text-xs uppercase tracking-wider text-zinc-400">Allocated this month</p>
           <p className="mt-2 text-2xl font-extrabold text-zinc-100">{formatINR(card.allocatedThisMonth)}</p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
           <p className="text-xs uppercase tracking-wider text-zinc-400">Monthly target</p>
           <p className="mt-2 text-2xl font-extrabold text-zinc-100">{card.targetPaise !== undefined ? formatINR(card.targetPaise) : "—"}</p>
           {card.progressPercent !== undefined && <p className="mt-1 text-xs text-zinc-500">{card.progressPercent}% reached</p>}
         </div>
       </div>
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-zinc-200">Active rules</h2>
           <Link href="/owner/pots/rules" className="text-xs text-[var(--radium-green)] underline">Manage rules</Link>
@@ -65,7 +65,7 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
         )}
       </section>
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-zinc-200">Why this balance? Transaction history</h2>
         {v.transactions.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-400">No ledger movements yet.</p>
@@ -93,10 +93,10 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
       </section>
 
       <Notice code={notice} />
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <h2 className="mb-1 text-sm font-semibold text-zinc-200">Reserve, transfer and pay out</h2>
         <p className="mb-4 text-xs text-zinc-500">Owner only, step-up and a reason are required. Available to move: {formatINR(rt.payouts.getAvailable(DEMO_BUSINESS_ID, card.pot.id))}. Sandbox: payouts are simulated.</p>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
           <form action={movePotAction} className="space-y-3">
             <input type="hidden" name="potId" value={card.pot.id} /><input type="hidden" name="mode" value="reserve" />
             <p className="text-xs font-medium text-zinc-300">Reserve from unallocated money into this Pot</p>

@@ -32,7 +32,7 @@ export default async function RulesPage({ searchParams }: { searchParams: Promis
   const pctOrRupees = (m: string, val: number) => (m === "PERCENTAGE" ? String(val / 100) : m === "REMAINING" ? "" : String(val / 100));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Link href="/owner/pots" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
         <ArrowLeft className="h-4 w-4" /> Back to Pots
       </Link>
@@ -46,7 +46,7 @@ export default async function RulesPage({ searchParams }: { searchParams: Promis
 
       {n && <p role="status" className={`rounded-lg border px-3 py-2 text-sm ${n.ok ? "border-[var(--radium-green)]/30 text-[var(--radium-green)]" : "border-red-500/30 text-red-400"}`}>{n.text}</p>}
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-zinc-200">Current rules</h2>
         {v.rules.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-400">No rules yet. Settled payments stay unallocated until you add one.</p>
@@ -73,7 +73,7 @@ export default async function RulesPage({ searchParams }: { searchParams: Promis
         )}
       </section>
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-zinc-200">{editing ? `Publish new version of “${editing.ruleKey}”` : "Add a rule"}</h2>
         <p className="mt-1 text-xs text-zinc-500">High-risk action: requires your verified PIN session and a reason, and is written to the audit log.</p>
         <form action={publishRuleAction} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">

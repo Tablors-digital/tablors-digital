@@ -16,7 +16,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   const filter = (FILTERS.find((x) => x.key === f)?.key ?? "ALL") as TransactionFilter;
   const v = buildTransactionsView(getPotsRuntime(), filter);
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Link href="/owner/pots" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
         <ArrowLeft className="h-4 w-4" /> Back to Pots
       </Link>
@@ -30,7 +30,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         ))}
       </div>
       <p className={`text-xs ${v.reconciliation.ok ? "text-zinc-500" : "text-red-400"}`}>{v.reconciliation.ok ? "Ledger reconciled." : "Reconciliation mismatch — review before trusting these figures."}</p>
-      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         {v.rows.length === 0 ? <p className="text-sm text-zinc-400">No transactions yet.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-zinc-400">

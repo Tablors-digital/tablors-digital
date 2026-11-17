@@ -11,7 +11,7 @@ export default async function SalaryReviewPage({ params, searchParams }: { param
   let r; try { r = rt.payroll.review(runId); } catch { notFound(); }
   const run = r.run; const draft = run.status === "DRAFT";
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back href="/owner/pots/salary" label="Back to Salary" />
       <Header title={`Salary review — ${run.period}`} sub="Original and edited amounts side by side. Originals are never overwritten." />
       <Notice code={notice} />

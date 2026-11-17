@@ -145,7 +145,7 @@ export function NotificationBell() {
 
           <ul className={`overflow-y-auto ${expanded ? "max-h-[28rem]" : "max-h-96"}`}>
             {latest.length === 0 ? (
-              <li className="px-4 py-8 text-center text-sm text-[#9DA194]">No notifications yet.</li>
+              <li className="px-4 py-4 sm:py-8 text-center text-sm text-[#9DA194]">No notifications yet.</li>
             ) : (
               latest.map((n: Item) => (
                 <li key={n.id} className="flex items-stretch border-b border-[#23251F] last:border-0">

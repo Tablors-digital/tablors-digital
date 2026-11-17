@@ -13,7 +13,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="w-full rounded-[var(--radius-brand)] bg-[var(--color-gold-500)] px-6 py-2.5 text-sm font-medium text-[#0a0a0a] disabled:opacity-60"
+      className="w-full rounded-[var(--radius-brand)] bg-[var(--color-gold-500)] px-4 sm:px-6 py-2.5 text-sm font-medium text-[#0a0a0a] disabled:opacity-60"
     >
       {pending ? "Signing in…" : "Sign in"}
     </button>
@@ -25,8 +25,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-0)] px-6">
-      <div className="w-full max-w-sm rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-0)] px-4 sm:px-6">
+      <div className="w-full max-w-sm rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4 sm:p-8">
         <TablorLogo size="lg" href="/" priority />
         <h1 className="mt-4 text-xl text-[var(--color-text-primary)]">Sign in</h1>
 

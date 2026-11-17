@@ -29,6 +29,13 @@
       "when": 1793000100000,
       "tag": "0003_schema_drift_loyalty_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793000200000,
+      "tag": "0004_pots_persistence",
+      "breakpoints": true
     }
   ]
 }

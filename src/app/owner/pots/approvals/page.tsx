@@ -1,18 +1,40 @@
 import { getPotsRuntime, DEMO_BUSINESS_ID as B } from "@/server/modules/pots/runtime";
 import { approvePayoutAction, cancelPayoutAction, executePayoutAction } from "@/server/modules/pots/money-actions";
 import { formatINR } from "@/server/modules/pots/money";
+import { SandTimer } from "@/components/pots/sand-timer";
+import { approvalWindow, isPendingStatus } from "@/components/pots/cycles";
 import { Back, Header, Notice, Section, btnCls, btnMuted, statusCls, when } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
 
+const currentTimestamp = () => Date.now();
+
 export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
-  const { notice } = await searchParams; const rt = getPotsRuntime();
-  const pending = rt.payouts.pending(B); const recent = rt.payouts.list(B).filter((p) => p.status === "SUCCESS" || p.status === "FAILED" || p.status === "CANCELLED").slice(0, 10);
+  const { notice } = await searchParams;
+  const rt = getPotsRuntime();
+  const pending = rt.payouts.pending(B);
+  const recent = rt.payouts.list(B).filter((p) => p.status === "SUCCESS" || p.status === "FAILED" || p.status === "CANCELLED").slice(0, 10);
   const name = (id: string) => rt.pots.find((p) => p.id === id)?.name ?? id;
+  const nowMs = currentTimestamp();
+  const waiting = pending.filter((p) => isPendingStatus(p.status)).sort((a, b) => +a.createdAt - +b.createdAt)[0];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back /><Header title="Authorization" sub="Approve or cancel payouts. High-risk items need step-up (your Pots PIN session). Sandbox: you choose the simulated provider result." />
       <Notice code={notice} />
+      {waiting ? (() => {
+        const w = approvalWindow(waiting.createdAt);
+        return (
+          <SandTimer
+            title="Oldest item awaiting approval"
+            startMs={w.startMs}
+            endMs={w.endMs}
+            nowMs={nowMs}
+            suffix="to approve"
+            caption={`${waiting.kind} · ${formatINR(waiting.amount)} from ${name(waiting.potId)}`}
+          />
+        );
+      })() : null}
       <Section title="Waiting for action">
         {pending.length === 0 ? <p className="text-sm text-zinc-400">Nothing pending.</p> : pending.map((p) => (
           <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-900 py-3 first:border-0">

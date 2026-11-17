@@ -33,10 +33,10 @@ export function Specifications() {
   return (
     <section
       id="specifications"
-      className="border-t border-[var(--mkt-border)] px-6 py-10 sm:py-12 lg:py-16"
+      className="border-t border-[var(--mkt-border)] px-4 sm:px-6 py-5 sm:py-12 lg:py-16"
       style={{ scrollMarginTop: "4.25rem" }}
     >
-      <div className="mkt-container grid gap-10 lg:grid-cols-[minmax(0,1.1fr)_1fr] lg:items-center lg:gap-16">
+      <div className="mkt-container grid gap-6 sm:gap-10 lg:grid-cols-[minmax(0,1.1fr)_1fr] lg:items-center lg:gap-16">
         <Reveal className="mx-auto w-full max-w-xl lg:max-w-none">
           <TablorDeviceImage
             alt=""
@@ -54,7 +54,7 @@ export function Specifications() {
           >
             The terminal, at a glance
           </h2>
-          <ul className="mt-8 grid grid-cols-2 gap-3 sm:gap-5">
+          <ul className="mt-5 sm:mt-8 grid grid-cols-2 gap-3 sm:gap-5">
             {highlights.map((h) => (
               <li
                 key={h.label}
@@ -72,7 +72,7 @@ export function Specifications() {
               </li>
             ))}
           </ul>
-          <StaggerGroup className="mt-8 grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
+          <StaggerGroup className="mt-5 sm:mt-8 grid grid-cols-1 gap-x-5 sm:gap-x-8 gap-y-5 sm:grid-cols-2">
             {specs.map((s) => (
               <StaggerItem key={s.label} className="border-l pl-4">
                 <div style={{ borderColor: "var(--mkt-lime-dim)" }}>

@@ -240,8 +240,9 @@ export async function refundPaymentAction(
     onPaymentRefunded({
       refundId: result.refund.id,
       paymentId,
-      amountRupees: amount,
-      reason,
+      amountRupees: result.refund.amountRupees,
+      reason: result.refund.reason,
+      stepUpVerified: true,
     });
   } catch (error) {
     console.error("Refund hook failed for payment", paymentId, error);

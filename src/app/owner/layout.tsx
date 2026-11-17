@@ -31,7 +31,7 @@ export default async function OwnerLayout({ children }: { children: ReactNode })
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-black text-zinc-100 overflow-x-hidden">
       {/* Sidebar - Responsive for Mobile & Tablet */}
-      <aside className="relative w-full md:w-64 bg-zinc-950 border-r border-zinc-800 shrink-0 flex flex-col justify-between p-4 md:p-6 md:min-h-screen overflow-hidden">
+      <aside className="relative w-full md:w-64 bg-zinc-950 border-r border-zinc-800 shrink-0 flex flex-col justify-between p-3 md:p-6 md:min-h-screen overflow-hidden">
         {/* ambient neon glow behind the logo, purely decorative */}
         <div
           aria-hidden="true"
@@ -40,7 +40,7 @@ export default async function OwnerLayout({ children }: { children: ReactNode })
 
         <div className="relative">
           {/* Header & Neon Branding */}
-          <div className="flex items-center justify-between md:justify-start space-x-3 pb-6 border-b border-zinc-900">
+          <div className="flex items-center justify-between md:justify-start space-x-3 pb-3 md:pb-6 border-b border-zinc-900">
             <Link href={roleHome[session.role]} className="flex items-center space-x-3 group">
               {settings.logoDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -73,7 +73,7 @@ export default async function OwnerLayout({ children }: { children: ReactNode })
         </div>
 
         {/* Logout Form & Status */}
-        <div className="relative mt-6 pt-4 border-t border-zinc-900 flex items-center justify-between md:flex-col md:items-start md:space-y-4">
+        <div className="relative mt-3 pt-2 md:mt-6 md:pt-4 border-t border-zinc-900 flex items-center justify-between md:flex-col md:items-start md:space-y-4">
           <form action={demoLogout} className="w-full">
             <button
               type="submit"
@@ -97,8 +97,8 @@ export default async function OwnerLayout({ children }: { children: ReactNode })
       <NotificationToasts />
 
       {/* Main Content Area */}
-      <main className="flex-1 min-w-0 overflow-y-auto bg-black p-4 sm:p-8 lg:p-10">
-        <div className="max-w-7xl mx-auto space-y-6">{children}</div>
+      <main className="flex-1 min-w-0 overflow-y-auto bg-black p-3 sm:p-8 lg:p-10">
+        <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">{children}</div>
       </main>
     </div>
   );

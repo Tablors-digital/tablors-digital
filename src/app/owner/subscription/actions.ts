@@ -5,7 +5,7 @@ import { z } from "zod";
 import { hasPermission } from "@/server/modules/auth/permissions";
 import { getDemoSession } from "@/server/modules/auth/session";
 import { getDevicesDb } from "@/server/modules/data/devices-db";
-import { addDevices, changePlan, renew } from "@/server/modules/demo-store/subscription";
+import { changePlan } from "@/server/modules/demo-store/subscription";
 
 export type SubscriptionActionResult = { ok: true } | { ok: false; error: string };
 const fail = (error: string): SubscriptionActionResult => ({ ok: false, error });
@@ -14,38 +14,36 @@ async function authorize() {
   const session = await getDemoSession();
   return session && hasPermission(session.role, "subscription") ? session : null;
 }
-const done = (): SubscriptionActionResult => {
-  revalidatePath("/owner/subscription");
-  return { ok: true };
-};
 
-// NOTE: demo only. In production, call your payment gateway first and only
-// change the plan after the payment webhook confirms success.
 export async function changePlanAction(plan: unknown): Promise<SubscriptionActionResult> {
   const session = await authorize();
   if (!session) return fail("Only the owner can change the subscription.");
-  const p = z.enum(["starter", "professional", "enterprise"]).safeParse(plan);
-  if (!p.success) return fail("Invalid plan.");
-  const err = await changePlan(
+  const parsed = z.enum(["starter", "professional", "enterprise"]).safeParse(plan);
+  if (!parsed.success) return fail("Invalid plan.");
+
+  const error = await changePlan(
     session.restaurantId,
-    p.data,
+    parsed.data,
     (await getDevicesDb(session.restaurantId)).length,
   );
-  return err ? fail(err) : done();
+  if (error) return fail(error);
+  revalidatePath("/owner/subscription");
+  return { ok: true };
 }
 
+/**
+ * Subscription renewal and device purchases are intentionally not simulated.
+ * This project has no subscription payment-provider integration yet. Returning
+ * an explicit error prevents demo code from recording a successful payment.
+ */
 export async function renewAction(): Promise<SubscriptionActionResult> {
   const session = await authorize();
   if (!session) return fail("Only the owner can renew.");
-  await renew(session.restaurantId);
-  return done();
+  return fail("Subscription payments are not configured. No payment has been made.");
 }
 
-export async function addDevicesAction(count: unknown): Promise<SubscriptionActionResult> {
+export async function addDevicesAction(_count: unknown): Promise<SubscriptionActionResult> {
   const session = await authorize();
   if (!session) return fail("Only the owner can add devices.");
-  const p = z.coerce.number().int().min(1, "Enter at least 1").max(100).safeParse(count);
-  if (!p.success) return fail(p.error.issues[0]?.message ?? "Invalid number");
-  await addDevices(session.restaurantId, p.data);
-  return done();
+  return fail("Device purchases are not configured. No devices have been added and no payment has been made.");
 }

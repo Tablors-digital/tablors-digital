@@ -19,6 +19,9 @@ export function OrderPanel({
   codeDraft = "",
   confirmedLines = [],
   confirmedOrderNumber = null,
+  activeCode = null,
+  panelActive = false,
+  onSelectLine,
 }: {
   tableLabel: string;
   lines: CartLine[];
@@ -32,6 +35,12 @@ export function OrderPanel({
   confirmedLines?: CartLine[];
   /** Human-readable, e.g. ORD-00125 (never the internal id). */
   confirmedOrderNumber?: string | null;
+  /** Cart line the keyboard cursor is on. */
+  activeCode?: string | null;
+  /** True while the arrow keys are controlling this panel. */
+  panelActive?: boolean;
+  /** Mouse / touch: make a line the active one. */
+  onSelectLine?: (code: string) => void;
 }) {
   const roundNumbers = Array.from(new Set(confirmedLines.map((l) => l.round ?? 1))).sort((a, b) => a - b);
   const confirmedCount = confirmedLines.reduce((sum, l) => sum + l.qty, 0);
@@ -42,8 +51,12 @@ export function OrderPanel({
 
   return (
     <div
-      className="flex h-full flex-col rounded-lg border px-3 py-2.5 sm:px-4 sm:py-3"
-      style={{ background: "var(--device-lcd-bg)", borderColor: "var(--device-lcd-border)" }}
+      className="flex h-full flex-col rounded-lg border px-2.5 py-2 sm:px-4 sm:py-3"
+      style={{
+        background: "var(--device-lcd-bg)",
+        borderColor: panelActive ? "var(--device-gold)" : "var(--device-lcd-border)",
+      }}
+      data-order-panel
     >
       <div className="flex items-center justify-between">
         <h2
@@ -97,7 +110,8 @@ export function OrderPanel({
         </div>
       )}
 
-      <div className="mt-2 flex-1 overflow-y-auto">
+      {/* The list is its own scroll area: arrow keys scroll only this box. */}
+      <div data-order-scroll className="mt-2 min-h-0 max-h-[min(55vh,26rem)] flex-1 overflow-y-auto">
         {lines.length === 0 ? (
           <p className="py-4 text-center text-xs" style={{ color: "var(--device-lcd-muted)" }}>
             No items added yet. Select from the menu above.
@@ -114,17 +128,34 @@ export function OrderPanel({
               </tr>
             </thead>
             <tbody>
-              {lines.map((line, index) => (
-                <tr key={line.code} className="border-t" style={{ borderColor: "var(--device-lcd-border)" }}>
-                  <td className="py-1">{index + 1}.</td>
-                  <td className="py-1">{line.code}</td>
-                  <td className="truncate py-1">{line.name}</td>
-                  <td className="py-1 text-right">{line.qty}</td>
-                  <td className="py-1 text-right">
-                    {line.priceRupees * line.qty}/-
-                  </td>
-                </tr>
-              ))}
+              {lines.map((line, index) => {
+                const active = line.code === activeCode;
+                return (
+                  <tr
+                    key={line.code}
+                    data-cart-code={line.code}
+                    aria-current={active ? "true" : undefined}
+                    onClick={onSelectLine ? () => onSelectLine(line.code) : undefined}
+                    className="border-t"
+                    style={{
+                      borderColor: "var(--device-lcd-border)",
+                      background: active
+                        ? panelActive
+                          ? "rgba(212,175,55,0.28)"
+                          : "rgba(212,175,55,0.12)"
+                        : undefined,
+                      outline: active && panelActive ? "2px solid var(--device-gold)" : undefined,
+                      outlineOffset: "-2px",
+                    }}
+                  >
+                    <td className="py-1 pl-1">{index + 1}.</td>
+                    <td className="py-1">{line.code}</td>
+                    <td className="break-words py-1">{line.name}</td>
+                    <td className="py-1 text-right">{line.qty}</td>
+                    <td className="py-1 text-right">{line.priceRupees * line.qty}/-</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -186,7 +217,14 @@ export function OrderPanel({
       </div>
 
       <p
-        className="mt-1.5 text-center text-[10px] uppercase tracking-widest"
+        className="mt-1.5 hidden text-center text-[10px] leading-snug sm:block"
+        style={{ color: "var(--device-lcd-muted)" }}
+      >
+        ▲▼ move in order · X remove one
+      </p>
+
+      <p
+        className="mt-1 text-center text-[10px] uppercase tracking-widest sm:mt-1.5"
         style={{ color: "var(--device-lcd-muted)" }}
       >
         TFT LCD Display

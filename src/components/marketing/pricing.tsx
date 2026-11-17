@@ -76,7 +76,7 @@ export function Pricing() {
   return (
     <section
       id="pricing"
-      className="w-full px-6 py-12 sm:py-16 lg:px-8"
+      className="w-full px-4 sm:px-6 py-6 sm:py-16 lg:px-8"
       aria-labelledby="pricing-heading"
     >
       <div className="mkt-container">
@@ -100,11 +100,11 @@ export function Pricing() {
           </p>
         </div>
 
-        <div className="mt-12 border-t border-[var(--mkt-border)] sm:mt-16">
+        <div className="mt-7 border-t border-[var(--mkt-border)] sm:mt-16">
           {tiers.map((tier) => (
             <div
               key={tier.name}
-              className="grid gap-8 border-b border-[var(--mkt-border)] py-10 sm:grid-cols-12 sm:items-center sm:gap-8 lg:py-12"
+              className="grid gap-5 border-b border-[var(--mkt-border)] py-5 sm:py-10 sm:grid-cols-12 sm:items-center sm:gap-8 lg:py-12"
             >
               <div className="sm:col-span-3">
                 <h3
@@ -185,7 +185,7 @@ export function Pricing() {
           ))}
         </div>
 
-        <div className="mt-8">
+        <div className="mt-5 sm:mt-8">
           <p className="text-xs leading-relaxed text-[var(--mkt-text-muted)]">
             Looking for a setup tailored to your restaurant, hotel, café,
             theatre, lounge, or banquet operation? Talk to our team and we&apos;ll

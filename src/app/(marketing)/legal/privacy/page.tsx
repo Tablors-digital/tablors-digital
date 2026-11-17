@@ -1,6 +1,6 @@
 export default function PrivacyPage() {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-24">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-12 sm:py-24">
       <h1
         className="text-3xl text-[var(--color-text-primary)]"
         style={{ fontFamily: "ui-serif, Georgia, 'Times New Roman', serif" }}

@@ -23,7 +23,7 @@ export function DemoSection() {
     // form scrolling/focus behavior.
     <section
       id="demo"
-      className="relative overflow-hidden bg-[var(--mkt-stage)] px-6 py-16 sm:py-20 lg:py-24"
+      className="relative overflow-hidden bg-[var(--mkt-stage)] px-4 sm:px-6 py-8 sm:py-20 lg:py-24"
     >
       {/* Faint atmospheric depth: a barely-there warm glow behind the copy
           and a whisper of lime behind the panel. */}
@@ -32,7 +32,7 @@ export function DemoSection() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_50%_at_18%_45%,rgba(201,162,74,0.07),transparent_70%),radial-gradient(45%_45%_at_85%_60%,rgba(190,255,60,0.03),transparent_70%)]"
       />
 
-      <div className="mkt-container relative grid gap-12 md:grid-cols-5 md:items-center md:gap-10 lg:gap-20">
+      <div className="mkt-container relative grid gap-6 sm:gap-12 md:grid-cols-5 md:items-center md:gap-10 lg:gap-20">
         <Reveal className="md:col-span-2">
           <p className="text-xs uppercase tracking-[0.3em] text-[var(--mkt-lime)]">
             Book a demo
@@ -47,7 +47,7 @@ export function DemoSection() {
             Four quick details and we&apos;ll set up a short walkthrough.
           </p>
 
-          <ul className="mt-10 space-y-6">
+          <ul className="mt-6 sm:mt-10 space-y-4 sm:space-y-6">
             {points.map((point) => (
               <li key={point.title} className="flex items-start gap-4">
                 <span
@@ -70,7 +70,7 @@ export function DemoSection() {
         </Reveal>
 
         <Reveal delay={0.1} className="md:col-span-3">
-          <div className="relative rounded-2xl border border-white/10 bg-[color-mix(in_srgb,var(--mkt-stage),white_6%)] p-6 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-8 lg:p-10">
+          <div className="relative rounded-2xl border border-white/10 bg-[color-mix(in_srgb,var(--mkt-stage),white_6%)] p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-8 lg:p-10">
             <DemoForm />
           </div>
         </Reveal>

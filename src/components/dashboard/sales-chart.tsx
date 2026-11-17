@@ -39,7 +39,7 @@ export function SalesChart({ points }: { points: HourPoint[] }) {
   const hovered = hoverIndex !== null ? coords[hoverIndex] : null;
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <div className="flex items-baseline justify-between">
         <div>
           <h2 className="text-sm font-semibold text-[var(--ov-text)]">Sales Overview</h2>

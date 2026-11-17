@@ -55,13 +55,11 @@ function NavGroup({
 }
 
 export function Footer() {
-  const { phone, email, website } = publicContact;
+  const phone = publicContact.phone || "+91 85000 75183";
+  const email = publicContact.email || "tablor.digital@gmail.com";
 
-  const siteHref = website
-    ? /^https?:\/\//i.test(website)
-      ? website
-      : `https://${website}`
-    : undefined;
+  const phoneDigits = phone.replace(/\D/g, "");
+  const whatsappDigits = phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits;
 
   const socials = publicSocials.filter((social) => social.url);
 
@@ -75,7 +73,7 @@ export function Footer() {
       id="contact"
       className="scroll-mt-[4.25rem] border-t border-[var(--mkt-border)] bg-[var(--mkt-bg)]"
     >
-      <div className="mkt-container px-6 py-16 sm:py-20">
+      <div className="mkt-container px-4 sm:px-6 py-8 sm:py-20">
         <div className="grid gap-14 lg:grid-cols-12 lg:gap-10">
           {/* Brand */}
           <div className="lg:col-span-5">
@@ -88,7 +86,7 @@ export function Footer() {
             </p>
 
             {socials.length > 0 && (
-              <div className="mt-8">
+              <div className="mt-5 sm:mt-8">
                 <h3 className={label}>Follow us</h3>
 
                 <ul className="mt-4 flex gap-3">
@@ -136,52 +134,33 @@ export function Footer() {
             <h3 className={label}>Contact</h3>
 
             <dl className="mt-5 space-y-5 text-sm">
-              {phone && (
-                <div>
-                  <dt className="text-[var(--mkt-text-muted)]">Phone</dt>
+              <div>
+                <dt className="text-[var(--mkt-text-muted)]">Phone &amp; WhatsApp</dt>
 
-                  <dd className="mt-1">
-                    <a
-                      href={`tel:${phone.replace(/[^+\d]/g, "")}`}
-                      className={`text-[var(--mkt-text-primary)] ${link} hover:text-[var(--mkt-lime)]`}
-                    >
-                      {phone}
-                    </a>
-                  </dd>
-                </div>
-              )}
+                <dd className="mt-1">
+                  <a
+                    href={`https://wa.me/${whatsappDigits}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`text-[var(--mkt-text-primary)] ${link} hover:text-[var(--mkt-lime)]`}
+                  >
+                    {phone}
+                  </a>
+                </dd>
+              </div>
 
-              {email && (
-                <div>
-                  <dt className="text-[var(--mkt-text-muted)]">Email</dt>
+              <div>
+                <dt className="text-[var(--mkt-text-muted)]">Email</dt>
 
-                  <dd className="mt-1 break-all">
-                    <a
-                      href={`mailto:${email}`}
-                      className={`text-[var(--mkt-text-primary)] ${link} hover:text-[var(--mkt-lime)]`}
-                    >
-                      {email}
-                    </a>
-                  </dd>
-                </div>
-              )}
-
-              {website && (
-                <div>
-                  <dt className="text-[var(--mkt-text-muted)]">Website</dt>
-
-                  <dd className="mt-1 break-all">
-                    <a
-                      href={siteHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`text-[var(--mkt-text-primary)] ${link} hover:text-[var(--mkt-lime)]`}
-                    >
-                      {website}
-                    </a>
-                  </dd>
-                </div>
-              )}
+                <dd className="mt-1 break-all">
+                  <a
+                    href={`mailto:${email}`}
+                    className={`text-[var(--mkt-text-primary)] ${link} hover:text-[var(--mkt-lime)]`}
+                  >
+                    {email}
+                  </a>
+                </dd>
+              </div>
 
               {hasAddress && (
                 <div>
@@ -210,7 +189,7 @@ export function Footer() {
         </div>
 
         {/* Bottom divider */}
-        <div className="mt-16 border-t border-[var(--mkt-border)]" />
+        <div className="mt-8 sm:mt-16 border-t border-[var(--mkt-border)]" />
 
         {/* Copyright */}
         <div className="flex flex-col gap-5 pt-6 text-xs text-[var(--mkt-text-muted)] sm:flex-row sm:items-center sm:justify-between">

@@ -15,7 +15,7 @@ export function StaffPinForm() {
   const [showPin, setShowPin] = useState(false);
 
   return (
-    <div className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-950 p-6">
+    <div className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-950 p-3 sm:p-6">
       <div className="flex items-center gap-3">
         <div className="rounded-lg bg-zinc-900 p-2 text-[#d7fe3b]">
           <Lock className="h-5 w-5" />

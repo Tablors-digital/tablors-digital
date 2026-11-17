@@ -54,7 +54,7 @@ export function DeviceViews() {
   return (
     <section
       id="views"
-      className="border-t border-[var(--mkt-border)] px-6 py-16 sm:py-20 lg:py-24"
+      className="border-t border-[var(--mkt-border)] px-4 sm:px-6 py-8 sm:py-20 lg:py-24"
       style={{ scrollMarginTop: "4.25rem" }}
     >
       <div className="mkt-container">
@@ -73,7 +73,7 @@ export function DeviceViews() {
           </p>
         </Reveal>
 
-        <ul className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
+        <ul className="mt-6 sm:mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
           {views.map((v, i) => {
             const src = findImage(v.key);
             const inset = (100 - v.width) / 2;

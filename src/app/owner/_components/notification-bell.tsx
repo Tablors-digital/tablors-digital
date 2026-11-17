@@ -79,9 +79,9 @@ export function NotificationBell({ allHref = "/owner/notifications" }: { allHref
             {unread > 0 ? <button type="button" onClick={() => void mark({ all: true })} className="text-xs text-[var(--radium-green)] hover:underline">Mark all read</button> : null}
           </div>
           <ul className="max-h-96 overflow-y-auto">
-            {failed ? <li className="px-4 py-6 text-center text-sm text-zinc-400">Couldn’t load notifications. <button type="button" onClick={() => void load()} className="text-[var(--radium-green)] underline">Retry</button></li>
-              : !connected ? <li className="px-4 py-6 text-center text-sm text-amber-400">Notification source isn’t connected yet.</li>
-              : items.length === 0 ? <li className="px-4 py-8 text-center text-sm text-zinc-400">You’re all caught up.</li>
+            {failed ? <li className="px-4 py-3 sm:py-6 text-center text-sm text-zinc-400">Couldn’t load notifications. <button type="button" onClick={() => void load()} className="text-[var(--radium-green)] underline">Retry</button></li>
+              : !connected ? <li className="px-4 py-3 sm:py-6 text-center text-sm text-amber-400">Notification source isn’t connected yet.</li>
+              : items.length === 0 ? <li className="px-4 py-4 sm:py-8 text-center text-sm text-zinc-400">You’re all caught up.</li>
               : items.map((n) => (
                 <li key={n.id} className="border-b border-zinc-900 last:border-0">
                   <Link href={n.href} onClick={() => { setOpen(false); if (!n.read) void mark({ ids: [n.id] }); }} className={`flex gap-3 px-4 py-3 transition-colors hover:bg-zinc-900 ${n.read ? "opacity-60" : ""}`}>

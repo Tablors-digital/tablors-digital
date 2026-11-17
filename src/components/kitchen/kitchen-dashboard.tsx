@@ -137,7 +137,7 @@ export function KitchenDashboard({
   const visibleStatuses = statusFilter === "all" ? KITCHEN_STATUSES : [statusFilter];
 
   return (
-    <div className="tablor-kitchen min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+    <div className="tablor-kitchen min-h-screen px-4 py-3 sm:py-6 sm:px-6 lg:px-8">
       <KitchenHeader
         tables={tables}
         search={search}

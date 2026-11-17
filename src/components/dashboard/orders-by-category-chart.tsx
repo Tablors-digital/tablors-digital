@@ -44,7 +44,7 @@ export function OrdersByCategoryChart({ categories }: { categories: CategorySlic
   });
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <div className="flex items-baseline justify-between">
         <div>
           <h2 className="text-sm font-semibold text-[var(--ov-text)]">Orders by Category</h2>
@@ -56,7 +56,7 @@ export function OrdersByCategoryChart({ categories }: { categories: CategorySlic
       </div>
 
       {totalOrders === 0 ? (
-        <p className="mt-8 text-center text-sm text-[var(--ov-muted)]">No orders placed yet today.</p>
+        <p className="mt-5 sm:mt-8 text-center text-sm text-[var(--ov-muted)]">No orders placed yet today.</p>
       ) : (
         <>
           <div className="mt-4 flex justify-center">

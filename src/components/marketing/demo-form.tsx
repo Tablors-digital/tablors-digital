@@ -11,8 +11,6 @@ function fieldError(state: SubmitDemoRequestState, field: string) {
   return state.status === "error" ? state.fieldErrors?.[field] : undefined;
 }
 
-// "Cafes" / "Cafe" / "cafes" all become "cafe", so a category card such as
-// "Hotels" can be matched to a schema value such as "Hotel".
 function normalize(value: string): string {
   return value
     .normalize("NFD")
@@ -30,7 +28,7 @@ function SubmitButton() {
       disabled={pending}
       className="group inline-flex w-full items-center justify-center gap-2 rounded-full bg-[var(--mkt-lime)] px-7 py-3 text-sm font-medium text-[var(--mkt-lime-ink)] shadow-[0_0_0_0_transparent] transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-[0_8px_30px_-8px_var(--mkt-lime)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--mkt-lime)]/30 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100 sm:w-auto"
     >
-      {pending ? "Sending…" : "Request a free demo"}
+      {pending ? "Sending\u2026" : "Request a free demo"}
       {!pending && (
         <svg
           aria-hidden="true"
@@ -52,7 +50,6 @@ function SubmitButton() {
 const labelClass =
   "mb-2 block text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--mkt-text-secondary)]";
 
-// text-base on small screens (16px) stops iPhones zooming in when a field is tapped.
 const inputBase =
   "block w-full rounded-xl border border-white/15 bg-black/40 px-4 text-base sm:text-sm text-[var(--mkt-text-primary)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[var(--mkt-text-muted)] hover:border-white/25 focus:border-[var(--mkt-lime)] focus:ring-[3px] focus:ring-[var(--mkt-lime)]/15 aria-[invalid=true]:border-[var(--mkt-danger)]";
 
@@ -60,8 +57,6 @@ const inputClass = inputBase + " h-12";
 
 export function DemoForm() {
   const [state, formAction] = useActionState(submitDemoRequest, initialState);
-  // Not shown to the visitor. Defaults to "Other" and is replaced when the
-  // visitor taps a venue card ("Cafes", "Hotels", ...) further up the page.
   const [restaurantType, setRestaurantType] = useState<string>("Other");
 
   useEffect(() => {
@@ -81,7 +76,7 @@ export function DemoForm() {
     return (
       <div
         role="status"
-        className="rounded-xl border border-[var(--mkt-lime)]/40 bg-black/30 p-8 text-center"
+        className="rounded-xl border border-[var(--mkt-lime)]/40 bg-black/30 p-4 sm:p-8 text-center"
       >
         <h3
           className="text-2xl text-[var(--mkt-text-primary)]"
@@ -97,8 +92,7 @@ export function DemoForm() {
   }
 
   return (
-    <form action={formAction} noValidate className="space-y-6">
-      {/* Honeypot — hidden from sighted users, present for bots. */}
+    <form action={formAction} noValidate className="space-y-4 sm:space-y-6">
       <div aria-hidden="true" className="absolute -left-[9999px] top-auto h-0 w-0 overflow-hidden">
         <label htmlFor="companyWebsite">Leave this field empty</label>
         <input
@@ -110,7 +104,6 @@ export function DemoForm() {
         />
       </div>
 
-      {/* Records the venue type picked on the page, without asking the visitor. */}
       <input type="hidden" name="restaurantType" value={restaurantType} />
 
       <div className="grid gap-x-5 gap-y-5 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2">

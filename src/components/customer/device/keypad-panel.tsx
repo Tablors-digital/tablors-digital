@@ -129,10 +129,10 @@ function FunctionKey({
     <BlackKey
       onClick={onClick}
       disabled={disabled}
-      className="flex h-full w-full items-center justify-start gap-2 px-2.5 text-[10px] font-medium uppercase tracking-wide sm:text-[11px]"
+      className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1 text-[9px] font-medium uppercase tracking-tight sm:flex-row sm:justify-start sm:gap-2 sm:px-2.5 sm:text-[11px] sm:tracking-wide"
     >
       <Icon name={icon} color={iconColor} />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 text-center leading-[1.1] sm:truncate sm:text-left">{label}</span>
     </BlackKey>
   );
 }
@@ -150,8 +150,8 @@ function ArrowKey({
     <button
       type="button"
       onClick={onClick}
-      aria-label={isUp ? "Previous menu page" : "Next menu page"}
-      className="flex h-[2.75rem] w-[2.75rem] items-center justify-center rounded-full border border-black text-white transition-transform active:scale-95"
+      aria-label={isUp ? "Highlight previous order line" : "Highlight next order line"}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-[2.75rem] sm:w-[2.75rem] border border-black text-white transition-transform active:scale-95"
       style={{
         background: isUp
           ? "radial-gradient(circle at 35% 30%, #3fd06a, #14803a)"
@@ -201,6 +201,8 @@ export function KeypadPanel({
   onFeedback,
   onArrowUp,
   onArrowDown,
+  entryHint,
+  entryValue,
 }: {
   selectedItemName: string | null;
   codeDraft: string;
@@ -221,11 +223,15 @@ export function KeypadPanel({
   onFeedback: () => void;
   onArrowUp: () => void;
   onArrowDown: () => void;
+  /** Overrides the readout text/value (used to type the mobile number on the bill). */
+  entryHint?: string;
+  entryValue?: string;
 }) {
   const ROWS = "grid-rows-[repeat(4,2.75rem)]";
 
   return (
     <div
+      data-keypad
       className="rounded-lg border px-3 py-3 sm:px-4"
       style={{
         background:
@@ -241,18 +247,19 @@ export function KeypadPanel({
       >
         <span
           className="truncate text-[11px]"
-          style={{ color: selectedItemName ? "#d4af37" : "#8fa3b3" }}
+          style={{ color: selectedItemName && !entryHint ? "#d4af37" : "#8fa3b3" }}
         >
-          {selectedItemName
-            ? `${selectedItemName} — press ✓ to add`
-            : "Enter item code, then press ✓"}
+          {entryHint ??
+            (selectedItemName
+              ? `${selectedItemName} — press ✓ to add`
+              : "Enter item code, then press ✓")}
         </span>
 
         <span
           className="ml-3 shrink-0 font-mono text-sm font-bold"
           style={{ color: "#35d0ff" }}
         >
-          {selectedItemName ? `Qty ${qtyDraft}` : codeDraft.padEnd(3, "_")}
+          {entryValue ?? (selectedItemName ? `Qty ${qtyDraft}` : codeDraft.padEnd(3, "_"))}
         </span>
       </div>
 
@@ -274,7 +281,7 @@ export function KeypadPanel({
 
           <BlackKey
             onClick={onBackspace}
-            ariaLabel="Backspace"
+            ariaLabel="X — backspace, or remove one of the highlighted order item"
             className="h-full w-full text-lg font-medium"
           >
             X
@@ -345,12 +352,12 @@ export function KeypadPanel({
           <FunctionKey icon="feedback" label="Feedback" onClick={onFeedback} />
 
           {/* 4th row: − QTY +  and  ↑ ↓ */}
-          <div className="col-span-2 flex items-center justify-between gap-2">
+          <div className="col-span-2 flex items-center justify-between gap-1 sm:gap-2">
             <div className="flex h-full flex-1 items-stretch gap-1">
               <BlackKey
                 onClick={onQtyMinus}
                 ariaLabel="Decrease quantity"
-                className="w-9 text-lg font-medium"
+                className="w-7 text-lg font-medium sm:w-9"
               >
                 −
               </BlackKey>
@@ -370,19 +377,27 @@ export function KeypadPanel({
               <BlackKey
                 onClick={onQtyPlus}
                 ariaLabel="Increase quantity"
-                className="w-9 text-lg font-medium"
+                className="w-7 text-lg font-medium sm:w-9"
               >
                 +
               </BlackKey>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
               <ArrowKey direction="up" onClick={onArrowUp} />
               <ArrowKey direction="down" onClick={onArrowDown} />
             </div>
           </div>
         </div>
+
+        {/* Physical-keyboard map (this device has no touchscreen) */}
+        <p
+          className="mt-1.5 text-center text-[10px] leading-snug"
+          style={{ color: "#4a4d55" }}
+        >
+          0-9 code · Enter ✓ · ▲▼ order list · X delete / remove · + − qty · Esc cancel · C Confirm · B Bill · W Waiter · Q QR · F Feedback · Del Clear
+        </p>
       </div>
     </div>
   );
-}
+}

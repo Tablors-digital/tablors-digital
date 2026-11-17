@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { hasPermission } from "./permissions";
+import { armingCookieOptions, mintArmingToken } from "./pin-session";
 import { getDemoSession } from "./session";
 import { checkStaffPin, STAFF_PIN_COOKIE } from "./staff-pin";
 
@@ -23,13 +24,8 @@ export async function verifyStaffPin(
   }
 
   const cookieStore = await cookies();
-  cookieStore.set(STAFF_PIN_COOKIE, "granted", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 15, // re-enter the PIN after 15 minutes
-  });
+  // Long arming window; PinSessionGuard shortens it to the 10s idle window once the page is on screen.
+  cookieStore.set(STAFF_PIN_COOKIE, mintArmingToken("staff"), armingCookieOptions());
 
   redirect("/owner/staff");
 }

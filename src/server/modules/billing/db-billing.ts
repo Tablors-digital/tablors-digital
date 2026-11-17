@@ -13,6 +13,8 @@ import {
 import { db } from "@/server/db/client";
 import { buildReceipt, type BillReceipt } from "./receipt";
 import { computeBillBreakdown, RATE_LIMITS } from "@/lib/bill-breakdown";
+import { computeOfferDiscounts } from "@/lib/offers-shared";
+import { loadOffersExec, readBillOffers, writeBillOffers } from "@/server/modules/offers/store";
 
 import {
   bills,
@@ -246,7 +248,15 @@ export async function issueBillDb(
    * with the kitchen. The bill is then issued without moving the order out of
    * the kitchen flow; it is marked "billed" when the payment settles.
    */
-  opts: { allowBeforeServed?: boolean } = {}
+  opts: {
+    allowBeforeServed?: boolean;
+    /**
+     * Apply the live offers (Offers & Promotions) as part of the bill's
+     * discount. Used by the customer-device checkout; owner-issued bills keep
+     * their manual discount only.
+     */
+    applyOffers?: boolean;
+  } = {}
 ): Promise<IssueBillResult> {
   return db.transaction(async (tx): Promise<IssueBillResult> => {
     const [order] = await tx
@@ -320,7 +330,25 @@ export async function issueBillDb(
     if (discountRupees > calc.subtotal + gst + additionalTax + serviceCharge) {
       return { ok: false, reason: "discount-too-large" };
     }
-    const total = Math.max(0, calc.subtotal + gst + additionalTax + serviceCharge - discountRupees);
+
+    // Offers are an extra, automatic part of the discount (never more than the subtotal).
+    const offerResult = opts.applyOffers
+      ? computeOfferDiscounts(
+          items.map((l) => ({
+            itemId: l.menuItemId,
+            category: l.categorySnapshot,
+            qty: l.qty,
+            priceRupees: l.pricePaise / 100,
+          })),
+          await loadOffersExec(tx),
+          Date.now()
+        )
+      : { applied: [], totalRupees: 0 };
+    const totalDiscount = Math.min(
+      discountRupees + offerResult.totalRupees,
+      calc.subtotal + gst + additionalTax + serviceCharge
+    );
+    const total = Math.max(0, calc.subtotal + gst + additionalTax + serviceCharge - totalDiscount);
 
     const now = new Date();
     const [created] = await tx
@@ -332,7 +360,7 @@ export async function issueBillDb(
         tableId: order.tableId,
         subtotalPaise: Math.round(subtotal * 100),
         gstPaise: gst * 100,
-        discountPaise: discountRupees * 100,
+        discountPaise: totalDiscount * 100,
         serviceChargePaise: serviceCharge * 100,
         additionalTaxPaise: additionalTax * 100,
         gstPercent,
@@ -343,6 +371,17 @@ export async function issueBillDb(
         updatedAt: now,
       })
       .returning();
+
+    if (opts.applyOffers) {
+      // Written (even when empty) so a later extra round re-checks the offers.
+      await writeBillOffers(tx, {
+        billId: created.id,
+        orderId: order.id,
+        applied: offerResult.applied,
+        totalRupees: offerResult.totalRupees,
+        at: now.getTime(),
+      });
+    }
 
     if (order.status === "served") {
       await tx
@@ -756,6 +795,26 @@ export async function recomputeUnpaidBillTx(tx: Tx, orderId: string): Promise<vo
   // Legacy bills (issued before rates were stored) fall back to their effective rates.
   const ratio = (paise: number) =>
     bill.subtotalPaise > 0 ? Math.round((paise / bill.subtotalPaise) * 10000) / 100 : 0;
+
+  // A customer-device bill carries its offers: re-check them against every round,
+  // swapping only the offer part of the discount (loyalty / manual parts stay).
+  let discountRupees = bill.discountPaise / 100;
+  const offerRecord = await readBillOffers(tx, bill.id);
+  let nextOffers: Awaited<ReturnType<typeof computeOfferDiscounts>> | null = null;
+  if (offerRecord) {
+    nextOffers = computeOfferDiscounts(
+      items.map((l) => ({
+        itemId: l.menuItemId,
+        category: l.categorySnapshot,
+        qty: l.qty,
+        priceRupees: l.pricePaise / 100,
+      })),
+      await loadOffersExec(tx),
+      Date.now()
+    );
+    discountRupees = Math.max(0, discountRupees - offerRecord.totalRupees) + nextOffers.totalRupees;
+  }
+
   const calc = computeBillBreakdown(
     items.map((l) => ({ qty: l.qty, priceRupees: l.pricePaise / 100 })),
     {
@@ -763,8 +822,17 @@ export async function recomputeUnpaidBillTx(tx: Tx, orderId: string): Promise<vo
       additionalTaxPercent: bill.additionalTaxPercent ?? ratio(bill.additionalTaxPaise),
       serviceChargePercent: bill.serviceChargePercent ?? ratio(bill.serviceChargePaise),
     },
-    bill.discountPaise / 100
+    discountRupees
   );
+
+  if (offerRecord && nextOffers) {
+    await writeBillOffers(tx, {
+      ...offerRecord,
+      applied: nextOffers.applied,
+      totalRupees: nextOffers.totalRupees,
+      at: Date.now(),
+    });
+  }
 
   await tx
     .update(bills)

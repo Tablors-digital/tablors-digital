@@ -5,8 +5,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: process.env.VITEST_INCLUDE_LEGACY === "1"
-      ? ["tests/**/*.test.ts", "src/**/*.test.ts"]
-      : ["tests/**/*.test.ts"],
+      ? ["tests/**/*.test.{ts,tsx}", "src/**/*.test.ts"]
+      : ["tests/**/*.test.{ts,tsx}"],
   },
   resolve: {
     alias: {

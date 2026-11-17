@@ -81,3 +81,22 @@ export async function deleteDoc(
     .returning({ id: appDocuments.id });
   return rows.length > 0;
 }
+
+/**
+ * Inserts a document only if that id is free (INSERT ... ON CONFLICT DO NOTHING).
+ * Returns false when the id already exists, so callers can pick another one.
+ * Unlike putDoc it never overwrites, which makes generated ids genuinely unique.
+ */
+export async function insertDocIfAbsent<T>(
+  restaurantId: string,
+  collection: string,
+  id: string,
+  data: T,
+): Promise<boolean> {
+  const rows = await db
+    .insert(appDocuments)
+    .values({ restaurantId, collection, id, data: data as object })
+    .onConflictDoNothing()
+    .returning({ id: appDocuments.id });
+  return rows.length > 0;
+}

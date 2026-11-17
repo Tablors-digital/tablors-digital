@@ -23,7 +23,7 @@ export function OrderCompletedPanel({
 }) {
   return (
     <div className="mx-auto max-w-md">
-      <div className="rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] px-6 py-8 text-center shadow-[0_0_0_1px_var(--tablor-accent)]">
+      <div className="rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] px-4 sm:px-6 py-4 sm:py-8 text-center shadow-[0_0_0_1px_var(--tablor-accent)]">
         <p className="text-xl font-semibold text-[var(--tablor-accent)]">
           Payment Successful
         </p>

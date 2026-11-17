@@ -95,7 +95,7 @@ export function ReservationsManager({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           {embedded ? (
@@ -139,7 +139,7 @@ export function ReservationsManager({
           <tbody className="divide-y divide-zinc-900">
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={6} className="px-4 py-4 sm:py-8 text-center text-zinc-500">
                   No reservations for today.
                 </td>
               </tr>
@@ -296,7 +296,7 @@ function ReserveDialog({
     >
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-6"
+        className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-3 sm:p-6"
       >
         <h2 id="reserve-dialog-title" className="text-lg font-semibold text-zinc-50">
           Reserve a table
@@ -387,7 +387,7 @@ function CancelDialog({ row, onClose }: { row: ReservationRow; onClose: () => vo
       aria-labelledby="cancel-dialog-title"
       aria-describedby="cancel-dialog-desc"
     >
-      <div className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-6">
+      <div className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-3 sm:p-6">
         <h2 className="flex items-center gap-2 text-2xl font-semibold text-zinc-50">
   <CalendarDays className="h-5 w-5 text-[#d7fe3b]" aria-hidden="true" />
   Reservations

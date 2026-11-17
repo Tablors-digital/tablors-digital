@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
@@ -12,18 +12,17 @@ export function PotsPinForm() {
   const [showPin, setShowPin] = useState(false);
 
   return (
-    <div className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-950 p-6">
+    <div className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-950 p-3 sm:p-6">
       <div className="flex items-center gap-3">
-        <div className="rounded-lg bg-zinc-900 p-2 text-[var(--radium-green)]">
+        <div className="rounded-lg bg-zinc-900 p-2 text-[#d7fe3b]">
           <Lock className="h-5 w-5" />
         </div>
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">
-            Financial pots — PIN required
+            Financial pots {"\u2014"} PIN required
           </h1>
           <p className="text-xs text-zinc-500">
-            Demo PIN protection only. Not a substitute for real security on
-            production financial data.
+            
           </p>
         </div>
       </div>
@@ -45,8 +44,8 @@ export function PotsPinForm() {
               autoComplete="off"
               required
               maxLength={8}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm tracking-widest text-zinc-100 outline-none focus:border-[var(--radium-green)]"
-              placeholder="••••"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm tracking-widest text-zinc-100 outline-none focus:border-[#d7fe3b]"
+              placeholder={"\u2022\u2022\u2022\u2022"}
             />
             <button
               type="button"
@@ -75,9 +74,9 @@ export function PotsPinForm() {
           <button
             type="submit"
             disabled={isPending}
-            className="flex-1 rounded-lg bg-[var(--radium-green)] px-4 py-2 text-sm font-medium text-black transition-opacity disabled:opacity-60"
+            className="flex-1 rounded-lg bg-[#d7fe3b] px-4 py-2 text-sm font-medium text-black transition-opacity disabled:opacity-60"
           >
-            {isPending ? "Verifying…" : "Verify"}
+            {isPending ? "Verifying\u2026" : "Verify"}
           </button>
         </div>
       </form>

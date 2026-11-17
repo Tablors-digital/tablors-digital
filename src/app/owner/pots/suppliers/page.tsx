@@ -1,17 +1,39 @@
 import { getPotsRuntime, DEMO_BUSINESS_ID as B } from "@/server/modules/pots/runtime";
 import { addVendorAction, supplierPaymentAction } from "@/server/modules/pots/money-actions";
 import { formatINR } from "@/server/modules/pots/money";
+import { SandTimer } from "@/components/pots/sand-timer";
+import { approvalWindow, isPendingStatus } from "@/components/pots/cycles";
 import { Back, Header, Notice, Field, Section, inputCls, btnCls, statusCls, when } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
 
+const currentTimestamp = () => Date.now();
+
 export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
-  const { notice } = await searchParams; const rt = getPotsRuntime();
-  const vendors = rt.directory.vendors(B); const list = rt.payouts.list(B, "SUPPLIER");
+  const { notice } = await searchParams;
+  const rt = getPotsRuntime();
+  const vendors = rt.directory.vendors(B);
+  const list = rt.payouts.list(B, "SUPPLIER");
+  const nowMs = currentTimestamp();
+  const waiting = list.filter((p) => isPendingStatus(p.status)).sort((a, b) => +a.createdAt - +b.createdAt)[0];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back /><Header title="Supplier payment" sub="Choose the supplier, invoice and the Pot to pay from. Payments need approval; the Pot reduces only when the (simulated) provider confirms." />
       <Notice code={notice} />
+      {waiting ? (() => {
+        const w = approvalWindow(waiting.createdAt);
+        return (
+          <SandTimer
+            title="Supplier payment awaiting approval"
+            startMs={w.startMs}
+            endMs={w.endMs}
+            nowMs={nowMs}
+            suffix="to pay"
+            caption={`${formatINR(waiting.amount)} · ${waiting.maskedRef}${waiting.invoiceRef ? ` · ${waiting.invoiceRef}` : ""}`}
+          />
+        );
+      })() : null}
       <Section title="Pay a supplier">
         <form action={supplierPaymentAction} className="grid gap-3 sm:grid-cols-3">
           <Field label="Supplier"><select name="vendorId" required className={inputCls}><option value="">Select…</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name} ({v.maskedRef})</option>)}</select></Field>
@@ -32,7 +54,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
       </Section>
       <Section title="Supplier payments">
         {list.length === 0 ? <p className="text-sm text-zinc-400">None yet.</p> : (
-          <table className="w-full text-left text-xs text-zinc-400"><tbody>{list.map((p) => (
+          <table className="block max-w-full overflow-x-auto sm:table w-full text-left text-xs text-zinc-400"><tbody>{list.map((p) => (
             <tr key={p.id} className="border-t border-zinc-900"><td className="py-2">{when(p.createdAt)}</td><td>{p.maskedRef}</td><td>{p.invoiceRef}</td><td>{formatINR(p.amount)}</td><td className={statusCls(p.status)}>{p.status}</td></tr>))}</tbody></table>)}
         <p className="mt-2 text-xs text-zinc-500">Approve pending payments under Approvals.</p>
       </Section>

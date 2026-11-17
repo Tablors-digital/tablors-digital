@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useRef, type CSSProperties } from "react";
@@ -12,13 +11,6 @@ import {
 import { CtaButton } from "./motion/cta-button";
 import { DeviceViewer3D } from "./table05/device-viewer-3d";
 
-/*
- * HERO PRODUCT SCALE
- *
- * The terminal is a wide, horizontal device. On desktop its width is derived
- * from the hero height (share of the hero it may occupy vertically x the image
- * aspect ratio), capped by the width of its column.
- */
 const DEVICE_HEIGHT = 0.56;
 /** width / height of the 3D stage (kept at the hero's existing proportions). */
 const STAGE_ASPECT = 2.2;
@@ -32,7 +24,6 @@ export function Hero() {
     offset: ["start start", "end start"],
   });
 
-  /* Subtle scroll movement (disabled for reduced motion). */
   const parallaxY = useTransform(
     scrollYProgress,
     [0, 1],

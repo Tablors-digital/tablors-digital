@@ -490,3 +490,49 @@ section[id] {
     animation: none;
   }
 }
+
+/* ==========================================================
+   FINANCIAL POTS (/owner/pots/*)
+   Motion + glow helpers only. Every colour below is an existing
+   token (gold, radium green, danger red); no new theme.
+   ========================================================== */
+@keyframes pots-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes pots-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pots-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes pots-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.pots-draw { stroke-dasharray: 1; stroke-dashoffset: 0; animation: pots-draw 1.1s ease-out both; }
+.pots-fade { animation: pots-fade 1.4s ease-out both; }
+.pots-pulse { animation: pots-pulse 2.4s ease-in-out infinite; }
+.pots-rise { animation: pots-rise 0.45s ease-out both; }
+.pots-panel {
+  background: linear-gradient(180deg, rgba(22, 26, 33, 0.55) 0%, rgba(5, 7, 10, 0.95) 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 10px 30px -12px rgba(0, 0, 0, 0.8);
+}
+.pots-card-hover { transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+.pots-card-hover:hover { transform: translateY(-2px); box-shadow: 0 14px 34px -14px var(--pots-glow, rgba(212, 175, 55, 0.35)); }
+@media (prefers-reduced-motion: reduce) {
+  .pots-draw, .pots-fade, .pots-pulse, .pots-rise { animation: none; }
+  .pots-card-hover, .pots-card-hover:hover { transition: none; transform: none; }
+}
+
+/* ==========================================================
+   MENU MANAGEMENT (/owner/menu)
+   Motion + glow helpers only. Every colour below is an existing
+   token (surface blacks, radium green, gold, danger red); no new
+   theme. Mirrors the .pots-* helpers above.
+   ========================================================== */
+@keyframes mm-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes mm-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+.mm-rise { animation: mm-rise 0.45s ease-out both; }
+.mm-pop { animation: mm-pop 0.22s ease-out both; }
+.mm-panel {
+  background: linear-gradient(180deg, rgba(22, 26, 33, 0.55) 0%, rgba(5, 7, 10, 0.95) 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 10px 30px -12px rgba(0, 0, 0, 0.8);
+}
+.mm-hover { transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+.mm-hover:hover { transform: translateY(-2px); box-shadow: 0 14px 34px -14px var(--mm-glow, rgba(57, 255, 106, 0.35)); }
+.mm-glow-green { box-shadow: 0 0 0 1px rgba(57, 255, 106, 0.35), 0 0 30px -8px rgba(57, 255, 106, 0.55); }
+@media (prefers-reduced-motion: reduce) {
+  .mm-rise, .mm-pop { animation: none; }
+  .mm-hover, .mm-hover:hover { transition: none; transform: none; }
+}

@@ -21,12 +21,12 @@ export async function LiveOrdersPanel() {
     .sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <SectionHeader title="Live orders" subtitle={`${orders.length} active`} href="/owner/orders" />
 
       <div className="mt-4 space-y-2">
         {orders.length === 0 && (
-          <p className="py-6 text-center text-sm text-[var(--ov-muted)]">No active orders right now.</p>
+          <p className="py-3 sm:py-6 text-center text-sm text-[var(--ov-muted)]">No active orders right now.</p>
         )}
 
         {orders.slice(0, 6).map((order) => {

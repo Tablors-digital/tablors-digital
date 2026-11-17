@@ -22,7 +22,7 @@ export function PotsPinForm() {
             Financial pots — PIN required
           </h1>
           <p className="text-xs text-zinc-500">
-            Demo PIN protection only. Not a substitute for real security on
+            
             production financial data.
           </p>
         </div>

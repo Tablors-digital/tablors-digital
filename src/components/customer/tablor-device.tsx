@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { MenuItem } from "@/server/modules/demo-store/store";
 import { getEffectivePrice } from "@/lib/menu-shared";
 import { useCart, type CartLine } from "./cart-context";
 import { MenuPane } from "./device/menu-pane";
+import { OffersStrip } from "./device/offers-strip";
 import { KeypadPanel } from "./device/keypad-panel";
 import { OrderPanel } from "./device/order-panel";
 import { BillPopup } from "./device/bill-popup";
@@ -18,6 +19,7 @@ import {
   type ScreenNoticeData,
   type ScreenNoticeKind,
 } from "./device/screen-notice";
+import { findRewardByPoints } from "./device/loyalty-box";
 import { OrderCompletedPanel } from "./order-completed-panel";
 
 import { callWaiter, placeCustomerOrder } from "@/server/modules/orders/actions";
@@ -36,6 +38,10 @@ import type { CustomerSnapshot } from "@/server/modules/customer/snapshot";
 
 const MAX_QTY = 99;
 const MAX_CODE_LEN = 4;
+// Mobile numbers typed on the keypad (10 digits, or with a 91 country prefix).
+const MAX_PHONE_LEN = 12;
+// Points typed on the keypad to redeem a loyalty reward.
+const MAX_REDEEM_LEN = 5;
 /** One small JSON read; replaces the old 10s page refresh + 2s server-action poll. */
 const SYNC_MS = 2_500;
 
@@ -46,8 +52,6 @@ const NOTICE_MS: Record<ScreenNoticeKind, number> = {
   info: 4_000,
   waiter: 12_000,
 };
-
-const noop = () => {};
 
 export function TablorDevice({
   tableId,
@@ -93,17 +97,19 @@ export function TablorDevice({
   const [menuQrOpen, setMenuQrOpen] = useState(false);
   const [qrState, setQrState] = useState<QrState>({ status: "loading" });
 
-  // The full menu is expanded as soon as a table is opened.
-  const [menuExpanded, setMenuExpanded] = useState(true);
+  // Phone number being keyed in on the keypad while the bill panel is open (loyalty).
+  const [billPhone, setBillPhone] = useState("");
+  // Points being keyed in to redeem once the member is identified.
+  const [billRedeem, setBillRedeem] = useState("");
 
-  // Menu pages (one category per page), driven by the keypad ▲ ▼ arrows and
-  // the keyboard ArrowUp/ArrowDown keys. Wraps around, so never disabled.
-  const [menuPage, setMenuPage] = useState(0);
-  const menuPageCount = Math.max(new Set(items.map((i) => i.category)).size, 1);
-
-  function stepMenuPage(delta: number) {
-    setMenuPage((prev) => (prev + delta + menuPageCount) % menuPageCount);
-  }
+  /*
+   * Keyboard ordering. The menu is always fully visible and items are chosen
+   * by typing their code. ArrowUp / ArrowDown (and the keypad ▲ ▼ keys) only
+   * move through the items already in the order list; X removes ONE quantity
+   * of the highlighted line (the line disappears at zero).
+   */
+  const [cartCursor, setCartCursor] = useState<string | null>(null);
+  const [srMessage, setSrMessage] = useState("");
 
   const selectedItem =
     items.find((item) => item.code === selectedCode) ?? null;
@@ -165,17 +171,45 @@ export function TablorDevice({
   const failures = useRef(0);
   const knownMenuVersion = useRef(initialSnapshot.menuVersion);
   const mutating = useRef(false);
+  // Last payable total seen from the server, and a hook (set below) that runs
+  // when the restaurant changes the bill while the customer is looking at it.
+  const lastBillTotal = useRef<number | null>(initialSnapshot.bill?.total ?? null);
+  const onBillChanged = useRef<() => void>(() => {});
+  // Runs on every sync: if the bill is open but loyalty data is missing, load it.
+  const ensureLoyalty = useRef<() => void>(() => {});
+  const loyaltyLoading = useRef(false);
 
   const refresh = useCallback(async () => {
     const seq = ++reqSeq.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
-      const res = await fetch(`/api/customer/${encodeURIComponent(tableId)}/state`, { cache: "no-store" });
+      const res = await fetch(`/api/customer/${encodeURIComponent(tableId)}/state`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(String(res.status));
       const next = (await res.json()) as CustomerSnapshot;
       failures.current = 0;
       setOffline(false);
       if (seq !== reqSeq.current || mutating.current) return;
       setSnap(next);
+      const nextTotal = next.bill?.total ?? null;
+      const prevTotal = lastBillTotal.current;
+      lastBillTotal.current = nextTotal;
+      if (prevTotal !== null && nextTotal !== null && prevTotal !== nextTotal) {
+        onBillChanged.current();
+      }
+      ensureLoyalty.current();
+      // Payment finished on the server: close the bill / QR panels and reset
+      // loyalty entry so nothing stale reappears on the next order.
+      if (next.paid) {
+        setBillOpen(false);
+        setQrOpen(false);
+        setLoyaltyState(null);
+        setBillPhone("");
+        setBillRedeem("");
+      }
       if (next.menuVersion !== knownMenuVersion.current) {
         knownMenuVersion.current = next.menuVersion;
         router.refresh(); // owner changed the menu: re-read it once
@@ -183,6 +217,8 @@ export function TablorDevice({
     } catch {
       failures.current += 1;
       if (failures.current >= 3) setOffline(true);
+    } finally {
+      clearTimeout(timeout);
     }
   }, [tableId, router]);
 
@@ -211,13 +247,34 @@ export function TablorDevice({
     syncWithMenu(items);
   }, [items, syncWithMenu]);
 
-  // Once the server says the payment finished, the bill / QR popups close by themselves.
+  /*
+   * Closing the bill panel always resets what was being keyed in for it
+   * (phone number and points to redeem). Done here, in the event paths,
+   * instead of in an effect, so no state is set from inside an effect.
+   */
+  function closeBill() {
+    setBillOpen(false);
+    setBillPhone("");
+    setBillRedeem("");
+  }
+
   /*
    * Number keys:
+   *  - bill panel open      -> build the mobile number / points to redeem
    *  - no item selected yet -> build the item code
    *  - item selected        -> build the quantity
    */
   function handleDigit(digit: string) {
+    // Bill panel open: the keypad types the customer's mobile number.
+    if (billOpen) {
+      if (loyaltyIdentified) {
+        setBillRedeem((prev) => (prev.length >= MAX_REDEEM_LEN ? prev : prev + digit));
+      } else {
+        setBillPhone((prev) => (prev.length >= MAX_PHONE_LEN ? prev : prev + digit));
+      }
+      return;
+    }
+
     if (!selectedItem) {
       setCodeDraft((prev) =>
         prev.length >= MAX_CODE_LEN ? prev : prev + digit
@@ -240,10 +297,22 @@ export function TablorDevice({
   }
 
   /*
-   * X key: delete the last code digit, or the last quantity digit.
+   * X key: delete the last code digit, or the last quantity digit. With
+   * nothing typed and an order line highlighted, it removes one of that item.
    */
   function handleBackspace() {
+    if (billOpen) {
+      if (loyaltyIdentified) setBillRedeem((prev) => prev.slice(0, -1));
+      else setBillPhone((prev) => prev.slice(0, -1));
+      return;
+    }
+
     if (!selectedItem) {
+      if (codeDraft === "" && activeCartCode) {
+        // Nothing typed to delete: X removes ONE quantity of the active order line.
+        removeOneFromCart(activeCartCode);
+        return;
+      }
       setCodeDraft((prev) => prev.slice(0, -1));
       return;
     }
@@ -254,10 +323,17 @@ export function TablorDevice({
 
   /*
    * ✓ key:
+   *  - bill panel open  -> confirm the mobile number / generate the QR
    *  - no item selected -> look up the typed item code and select it
    *  - item selected    -> add the item with the chosen quantity
    */
   function handleCommitQty() {
+    // Bill panel open: ✓ confirms the phone number, then generates the QR.
+    if (billOpen) {
+      void handleBillConfirm();
+      return;
+    }
+
     if (!selectedItem) {
       const code = codeDraft.trim();
 
@@ -297,23 +373,365 @@ export function TablorDevice({
     setQtyTyped(false);
   }
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  /* ---- keyboard ordering -------------------------------------------- */
 
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+  const cartLines = cart.lines;
+  const activeCartCode =
+    cartLines.find((l) => l.code === cartCursor)?.code ?? null;
+  const waiterKey = `${snap.waiter.status}:${"calledAt" in snap.waiter ? snap.waiter.calledAt : 0}`;
+  const waiterVisible = snap.waiter.status !== "none" && waiterHidden !== waiterKey;
 
-      event.preventDefault();
-      setMenuPage((prev) =>
-        (prev + (event.key === "ArrowUp" ? -1 : 1) + menuPageCount) % menuPageCount
-      );
+  function announce(text: string) {
+    setSrMessage(text);
+  }
+
+  /** Tap on a menu row: add ONE of it to the order. */
+  function addMenuItemOne(code: string) {
+    const item = items.find((i) => i.code === code);
+    if (!item) return;
+    if (!item.available) {
+      showNotice("error", "ITEM NOT AVAILABLE", `${item.code} · ${item.name}`);
+      return;
+    }
+    const current = cart.getQty(code);
+    if (current >= MAX_QTY) {
+      showNotice("info", `Maximum ${MAX_QTY} of one item per order.`);
+      return;
+    }
+    cart.setQty(item, current + 1);
+    announce(`Added ${item.name}. ${current + 1} in your order.`);
+  }
+
+  /** Item code -> short offer label, for the badge on each offered menu row. */
+  const offerTags = useMemo(() => {
+    const tags: Record<string, string> = {};
+    for (const offer of snap.offers ?? []) {
+      if (offer.targetType === "item") {
+        const item = items.find((i) => i.id === offer.targetItemId);
+        if (item && !tags[item.code]) tags[item.code] = offer.valueLabel;
+      } else if (offer.targetType === "category") {
+        for (const item of items) {
+          if (item.category === offer.targetCategory && !tags[item.code]) tags[item.code] = offer.valueLabel;
+        }
+      }
+    }
+    return tags;
+  }, [snap.offers, items]);
+
+  function handleOfferItemPick(itemId: string) {
+    const item = items.find((i) => i.id === itemId);
+    if (item) handleMenuRowSelect(item.code);
+  }
+
+  /** Mouse / touch on a menu row: highlight it and add one. */
+  function handleMenuRowSelect(code: string) {
+    if (billOpen) return;
+    // Tapping the menu hands the keyboard back to typing: X must not hit an order line by accident.
+    setCartCursor(null);
+    addMenuItemOne(code);
+  }
+
+  /**
+   * ▲ ▼ (keypad buttons and keyboard arrows) move ONLY through the lines of "Your Order".
+   * They never highlight, move through or scroll the menu list, and do nothing
+   * while the bill or payment QR is showing in place of the order panel.
+   */
+  function moveCursor(delta: number) {
+    if (billOpen || qrOpen) {
+      // The bill / QR panel replaces "Your Order": ▲▼ scroll that panel.
+      scrollRightPanel(delta);
+      return;
+    }
+    moveCartCursor(delta);
+  }
+
+  /** ▲ ▼ while the bill or QR is showing: scroll the panel up / down. */
+  function scrollRightPanel(delta: number) {
+    const box = document.querySelector<HTMLElement>("[data-device-right] section");
+    if (!box) return;
+    box.scrollBy({ top: delta * 120, behavior: "smooth" });
+  }
+
+  /** ▲ ▼ move through the ordered items. */
+  function moveCartCursor(delta: number) {
+    if (cartLines.length === 0) return;
+    const idx = cartLines.findIndex((l) => l.code === cartCursor);
+    const nextIdx =
+      idx === -1
+        ? delta > 0
+          ? 0
+          : cartLines.length - 1
+        : Math.min(Math.max(idx + delta, 0), cartLines.length - 1);
+    setCartCursor(cartLines[nextIdx].code);
+  }
+
+  /** X (key): remove exactly ONE quantity; the line goes at zero. */
+  function removeOneFromCart(code: string) {
+    const idx = cartLines.findIndex((l) => l.code === code);
+    if (idx === -1) return;
+    const line = cartLines[idx];
+
+    cart.decrement(code);
+
+    if (line.qty <= 1) {
+      // Line is gone: move the cursor to its neighbour so X can keep going.
+      const neighbour = cartLines[idx + 1] ?? cartLines[idx - 1] ?? null;
+      setCartCursor(neighbour ? neighbour.code : null);
+      announce(`Removed ${line.name} from your order.`);
+    } else {
+      setCartCursor(code);
+      announce(`Removed one ${line.name}. ${line.qty - 1} left.`);
+    }
+  }
+
+  /*
+   * ✓ while the bill panel is open:
+   *  - loyalty is on, no member yet, and a number was typed -> look the member up
+   *  - member identified and points typed -> apply that reward, then the QR
+   *  - otherwise -> generate the payment QR
+   */
+  async function handleBillConfirm() {
+    const needsPhone =
+      Boolean(loyaltyState?.loyalty.enabled) &&
+      !loyaltyState?.loyalty.identified &&
+      loyaltyState?.status !== "paid";
+
+    if (needsPhone && billPhone.trim() !== "") {
+      const res = await loyaltyHandlers.identify(billPhone);
+      if (!res.ok) {
+        showNotice("error", res.message ?? "Couldn't check that number.");
+        return;
+      }
+      setBillPhone("");
+      showNotice("success", "MOBILE NUMBER SAVED", "Type points to redeem and press ✓, or press ✓ to skip and pay.");
+      return;
     }
 
+    // Member identified and points typed: apply that reward, then show the payment QR at once.
+    const l = loyaltyState?.loyalty;
+    if (l && l.enabled && l.identified && billRedeem.trim() !== "") {
+      const pick = findRewardByPoints(l.rewards, billRedeem);
+      if (!pick.ok) {
+        showNotice("error", pick.message);
+        return;
+      }
+      const res = await loyaltyHandlers.redeem(pick.rewardId);
+      if (!res.ok) {
+        showNotice("error", res.message ?? "Couldn't apply that reward.");
+        return;
+      }
+      setBillRedeem("");
+      await handleQrGen();
+      return;
+    }
+
+    // Nothing to redeem (or skipped): straight to the payment QR.
+    setBillPhone("");
+    setBillRedeem("");
+    await handleQrGen();
+  }
+
+  const loyaltyNeedsPhone =
+    Boolean(loyaltyState?.loyalty.enabled) &&
+    !loyaltyState?.loyalty.identified &&
+    loyaltyState?.status !== "paid";
+  const loyaltyIdentified =
+    Boolean(loyaltyState?.loyalty.enabled) &&
+    Boolean(loyaltyState?.loyalty.identified) &&
+    loyaltyState?.status !== "paid";
+  const billEntryHint = loyaltyNeedsPhone
+    ? "Mobile number, then press ✓"
+    : loyaltyIdentified
+      ? "Points to redeem, then ✓ (✓ alone = skip and pay)"
+      : "Press ✓ to generate the QR";
+
+  // Keep the keypad on screen while the bill is open: the number is typed on it.
+  useEffect(() => {
+    if (billOpen) {
+      document.querySelector("[data-keypad]")?.scrollIntoView({ block: "nearest" });
+    }
+  }, [billOpen]);
+
+  const keyboardEnabled = !(snap.paid && order && closedOrderId !== order.id);
+
+  // Latest handler lives in a ref so the single listener below never goes stale.
+  const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (!keyboardEnabled) return;
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const target = event.target as HTMLElement | null;
+    // Never interfere with typing in a text field or the feedback form.
+    if (target?.closest("input, textarea, select, [contenteditable='true'], #device-feedback")) return;
+
+    const key = event.key;
+    const lower = key.toLowerCase();
+
+    // W = Call Waiter, from anywhere (also while a panel is open).
+    if (lower === "w") {
+      if (event.repeat) return;
+      event.preventDefault();
+      void handleCallWaiter();
+      return;
+    }
+
+    // QR panels: only Esc (close) is handled here.
+    if (menuQrOpen || qrOpen) {
+      if (key === "Escape") {
+        event.preventDefault();
+        setMenuQrOpen(false);
+        setQrOpen(false);
+      } else if (qrOpen && (key === "ArrowUp" || key === "ArrowDown")) {
+        event.preventDefault();
+        scrollRightPanel(key === "ArrowUp" ? -1 : 1);
+      }
+      return;
+    }
+
+    // Bill panel: the keypad types the mobile number; ✓ / Enter confirms; Q = QR.
+    if (billOpen) {
+      if (key === "Escape") {
+        event.preventDefault();
+        closeBill();
+      } else if (key === "ArrowUp" || key === "ArrowDown") {
+        event.preventDefault();
+        scrollRightPanel(key === "ArrowUp" ? -1 : 1);
+      } else if (key === "Enter") {
+        if (target?.closest("button, a, summary, [role='button']")) return;
+        if (event.repeat) return;
+        event.preventDefault();
+        void handleBillConfirm();
+      } else if (lower === "q") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setBillPhone("");
+        setBillRedeem("");
+        void handleQrGen();
+      } else if (lower === "x" || key === "Backspace") {
+        event.preventDefault();
+        handleBackspace();
+      } else if (/^[0-9]$/.test(key)) {
+        event.preventDefault();
+        handleDigit(key);
+      }
+      return;
+    }
+
+    const typing = Boolean(selectedItem) || codeDraft.length > 0;
+
+    // ▲ ▼ : move the highlight through the "Your Order" lines only (never the menu)
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      event.preventDefault();
+      moveCursor(key === "ArrowUp" ? -1 : 1);
+      return;
+    }
+
+    // Esc: abandon what is being keyed in, else hide the waiter message
+    if (key === "Escape") {
+      if (typing) {
+        setCodeDraft("");
+        setSelectedCode(null);
+        setQtyDraft(0);
+        setQtyTyped(false);
+      } else if (waiterVisible) {
+        setWaiterHidden(waiterKey);
+      }
+      return;
+    }
+
+    // Enter = the ✓ key. A focused button keeps its own native Enter.
+    if (key === "Enter") {
+      if (target?.closest("button, a, summary, [role='button']")) return;
+      if (event.repeat) return; // holding Enter must not add dozens of items
+      event.preventDefault();
+      handleCommitQty();
+      return;
+    }
+
+    // X / Backspace = the X key: delete a typed digit, else remove ONE of the highlighted order item
+    if (lower === "x" || key === "Backspace") {
+      if (event.repeat && !typing) return;
+      event.preventDefault();
+      handleBackspace();
+      return;
+    }
+
+    // 0-9 = keypad digits (item code, then quantity)
+    if (/^[0-9]$/.test(key)) {
+      event.preventDefault();
+      handleDigit(key);
+      return;
+    }
+
+    // + / − = the QTY keys
+    if (key === "+" || key === "=") {
+      event.preventDefault();
+      handleQtyPlus();
+      return;
+    }
+    if (key === "-" || key === "_") {
+      event.preventDefault();
+      handleQtyMinus();
+      return;
+    }
+
+    // Function keys
+    if (event.repeat) return;
+    switch (lower) {
+      case "q": event.preventDefault(); void handleQrGen(); return;
+      case "c": event.preventDefault(); void handleConfirmOrder(); return;
+      case "b": event.preventDefault(); void handleBillGen(); return;
+      case "f": event.preventDefault(); handleFeedback(); return;
+      case "delete": event.preventDefault(); handleClearAll(); return;
+    }
+  };
+
+  useEffect(() => {
+    keyHandlerRef.current = handleKeyDown;
+  });
+
+  // The restaurant changed the bill (service charge, discount...): never leave
+  // the customer with an old amount on screen or an old QR.
+  useEffect(() => {
+    ensureLoyalty.current = () => {
+      if (!billOpen || loyaltyState || loyaltyLoading.current) return;
+      loyaltyLoading.current = true;
+      void openLoyalty().finally(() => {
+        loyaltyLoading.current = false;
+      });
+    };
+    onBillChanged.current = () => {
+      if (billOpen) {
+        showNotice("info", "BILL UPDATED", "The restaurant updated your bill. The amounts below are the latest.");
+        void openLoyalty();
+      }
+      if (qrOpen) {
+        showNotice("info", "BILL UPDATED", "The payment QR was refreshed with the new amount.");
+        void loadQr();
+      }
+    };
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => keyHandlerRef.current(event);
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [menuPageCount]);
+  }, []);
+
+  // Keep the highlighted order row visible by scrolling ONLY the order list:
+  // never the page and never the menu.
+  useEffect(() => {
+    if (!activeCartCode) return;
+    const row = document.querySelector<HTMLElement>(
+      `[data-order-panel] [data-cart-code="${CSS.escape(activeCartCode)}"]`
+    );
+    const box = row?.closest<HTMLElement>("[data-order-scroll]");
+    if (!row || !box) return;
+    const r = row.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (r.top < b.top) box.scrollTop -= b.top - r.top;
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
+  }, [activeCartCode]);
 
   function handleQtyPlus() {
     if (!selectedItem) {
@@ -452,13 +870,19 @@ export function TablorDevice({
 
   async function openLoyalty() {
     if (!orderId) return;
-    const state = await getCustomerOrderState(tableId, orderId);
-    if (state.ok && state.bill) setLoyaltyState(state.bill);
+    try {
+      const state = await getCustomerOrderState(tableId, orderId);
+      if (state.ok && state.bill) setLoyaltyState(state.bill);
+    } catch {
+      // Loyalty is optional: the bill must still work without it.
+    }
   }
 
   /*
    * BILL GEN: issues the ONE combined bill for every confirmed round (or
-   * re-opens the existing one) and shows the full bill popup.
+   * re-opens the existing one) and shows the bill panel in the device screen.
+   * Loyalty data is loaded BEFORE the panel opens, and any stale loyalty state
+   * from a previous bill is cleared first.
    */
   async function handleBillGen() {
     if (!orderId) {
@@ -466,20 +890,30 @@ export function TablorDevice({
       return;
     }
 
+    if (generatingBill) return;
+
+    // Open the panel at once (it shows "Generating bill…") so the screen never
+    // sits idle. Every bill starts with fresh loyalty state and empty fields.
     setGeneratingBill(true);
+    setLoyaltyState(null);
+    setBillPhone("");
+    setBillRedeem("");
+    setBillOpen(true);
+
     const result = await generateCustomerBill(tableId, orderId).catch(
       () => ({ ok: false as const, error: "Couldn't generate the bill. Please try again." })
     );
-    setGeneratingBill(false);
 
     if (!result.ok) {
+      setGeneratingBill(false);
+      setBillOpen(false);
       showNotice("error", result.error);
       return;
     }
 
-    await refresh();
-    void openLoyalty();
-    setBillOpen(true);
+    // Bill state and loyalty data load in parallel, not one after the other.
+    await Promise.all([refresh(), openLoyalty()]);
+    setGeneratingBill(false);
   }
 
   async function loadQr() {
@@ -504,7 +938,7 @@ export function TablorDevice({
       return;
     }
 
-    setBillOpen(false);
+    closeBill();
     setQrOpen(true);
     setQrState({ status: "loading" });
 
@@ -554,26 +988,27 @@ export function TablorDevice({
   }, [feedbackOpen]);
 
   // Loyalty: each call returns the refreshed bill (new total after a reward).
+  // The refresh is awaited so the discounted total is current before the QR is made.
   const loyaltyHandlers = {
     async identify(phone: string) {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await identifyLoyaltyMember(tableId, orderId, phone);
       if (res.bill) setLoyaltyState(res.bill);
-      void refresh();
+      await refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
     async redeem(rewardId: string) {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await redeemLoyaltyReward(tableId, orderId, rewardId);
       if (res.bill) setLoyaltyState(res.bill);
-      void refresh();
+      await refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
     async remove() {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await removeLoyaltyReward(tableId, orderId);
       if (res.bill) setLoyaltyState(res.bill);
-      void refresh();
+      await refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
   };
@@ -603,7 +1038,6 @@ export function TablorDevice({
   const shownLines = sessionClosed ? [] : confirmedLines;
   const shownOrderNumber = sessionClosed ? null : order?.orderNumber ?? null;
   const hasOrder = Boolean(order) && !sessionClosed;
-  const waiterKey = `${snap.waiter.status}:${"calledAt" in snap.waiter ? snap.waiter.calledAt : 0}`;
   const statusLabel =
     snap.table.status === "reserved" ? "RESERVED" : snap.table.status === "occupied" ? "OCCUPIED" : "AVAILABLE";
   const statusColor =
@@ -623,12 +1057,6 @@ export function TablorDevice({
         background: "var(--device-shell)",
       }}
     >
-      {/* Waiter popup: pinned to the TOP of the device */}
-      <WaiterBanner
-        waiter={waiterHidden === waiterKey ? { status: "none" } : snap.waiter}
-        onDismiss={() => setWaiterHidden(waiterKey)}
-      />
-
       <div className="flex items-center justify-center gap-2 py-1.5">
         <span
           className="text-sm font-bold tracking-wide"
@@ -665,18 +1093,15 @@ export function TablorDevice({
         </p>
       )}
 
-      {/*
-        Items are chosen by typing their code on the keypad,
-        so tapping a menu row does nothing.
-      */}
+      <OffersStrip offers={snap.offers ?? []} onPickItem={handleOfferItemPick} />
+
+      {/* The whole menu is always visible; items are chosen by typing their code on the keypad. */}
       <MenuPane
+        offerTags={offerTags}
         items={items}
         selectedCode={selectedCode}
-        onSelectItem={noop}
         getQty={cart.getQty}
-        pageIndex={menuPage}
-        expanded={menuExpanded}
-        onToggleExpanded={() => setMenuExpanded((prev) => !prev)}
+        onSelectRow={handleMenuRowSelect}
       />
 
       {hasOrder && cart.lines.length === 0 && shownOrderNumber && (
@@ -731,30 +1156,92 @@ export function TablorDevice({
           onCallWaiter={handleCallWaiter}
           waiterCalling={snap.waiter.status === "ringing"}
           onFeedback={handleFeedback}
-          onArrowUp={() => stepMenuPage(-1)}
-          onArrowDown={() => stepMenuPage(1)}
+          onArrowUp={() => moveCursor(-1)}
+          onArrowDown={() => moveCursor(1)}
+          entryHint={billOpen ? billEntryHint : undefined}
+          entryValue={billOpen ? (loyaltyIdentified ? billRedeem.padEnd(3, "_") : billPhone.padEnd(10, "_")) : undefined}
         />
 
-        <OrderPanel
-          tableLabel={tableLabel}
-          lines={cart.lines}
-          itemCount={cart.itemCount}
-          totalRupees={cart.totalRupees}
-          selection={
-            selectedItem
-              ? {
-                  code: selectedItem.code,
-                  name: selectedItem.name,
-                  qty: qtyDraft,
-                  unitRupees: getEffectivePrice(selectedItem),
-                }
-              : null
-          }
-          codeDraft={codeDraft}
-          confirmedLines={shownLines}
-          confirmedOrderNumber={shownOrderNumber}
-        />
+        {/*
+          Right-hand slot ("Your Order" area). The bill, then the payment QR,
+          take its place INSIDE the device frame; the order panel returns when
+          both are closed.
+        */}
+        <div className="relative h-full min-h-[30rem] lg:min-h-0" data-device-right>
+          {/* Absolutely filled: the panel can never make the row taller than the keypad; it scrolls inside. */}
+          <div className="absolute inset-0">
+          {billOpen && !snap.paid && snap.bill && (snap.bill.kind === "issued" || !generatingBill) ? (
+            <BillPopup
+              bill={snap.bill}
+              busy={generatingBill}
+              loyaltyState={loyaltyState}
+              loyalty={loyaltyHandlers}
+              phone={billPhone}
+              onPhoneChange={setBillPhone}
+              redeemPoints={billRedeem}
+              onRedeemPointsChange={setBillRedeem}
+              onPay={() => void handleQrGen()}
+              onConfirm={() => void handleBillConfirm()}
+              onClose={closeBill}
+            />
+          ) : billOpen && !snap.paid ? (
+            <section
+              role="status"
+              className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border p-4 text-center"
+              style={{ background: "var(--device-shell)", borderColor: "var(--device-gold)" }}
+            >
+              <div className="h-9 w-9 animate-spin rounded-full border-4 border-amber-300/25 border-t-amber-300" />
+              <p className="text-sm" style={{ color: "var(--device-lcd-muted)" }}>Generating bill…</p>
+              <button
+                type="button"
+                onClick={closeBill}
+                className="rounded-md border px-4 py-2 text-xs font-semibold"
+                style={{ borderColor: "var(--device-shell-border)", color: "var(--device-lcd-text)" }}
+              >
+                Cancel
+              </button>
+            </section>
+          ) : qrOpen && !snap.paid && order ? (
+            <QrPopup
+              restaurantName={snap.restaurantName}
+              tableNumber={snap.table.number}
+              orderNumber={order.orderNumber}
+              state={qrState}
+              onRetry={() => void loadQr()}
+              onSimulatePayment={handleDemoPayment}
+              onClose={() => setQrOpen(false)}
+            />
+          ) : (
+            <OrderPanel
+              activeCode={activeCartCode}
+              panelActive={activeCartCode !== null}
+              onSelectLine={setCartCursor}
+              tableLabel={tableLabel}
+              lines={cart.lines}
+              itemCount={cart.itemCount}
+              totalRupees={cart.totalRupees}
+              selection={
+                selectedItem
+                  ? {
+                      code: selectedItem.code,
+                      name: selectedItem.name,
+                      qty: qtyDraft,
+                      unitRupees: getEffectivePrice(selectedItem),
+                    }
+                  : null
+              }
+              codeDraft={codeDraft}
+              confirmedLines={shownLines}
+              confirmedOrderNumber={shownOrderNumber}
+            />
+          )}
+          </div>
+        </div>
       </div>
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {srMessage}
+      </p>
 
       {/* FEEDBACK appears only after an order is confirmed; the form stays hidden until pressed */}
       {hasOrder && confirmedCount > 0 && (
@@ -784,40 +1271,22 @@ export function TablorDevice({
         />
       )}
 
-      {/* Bottom-of-screen notification bar (sticks to the viewport bottom) */}
+      {/* Footer: waiter-call status + notifications (stick to the viewport bottom) */}
       <div className="sticky bottom-2 z-20">
+        <WaiterBanner
+          waiter={waiterHidden === waiterKey ? { status: "none" } : snap.waiter}
+          onDismiss={() => setWaiterHidden(waiterKey)}
+        />
         <ScreenNotice notice={notice} onDismiss={dismissNotice} />
       </div>
 
-      {billOpen && !snap.paid && snap.bill && (
-        <BillPopup
-          bill={snap.bill}
-          busy={generatingBill}
-          loyaltyState={loyaltyState}
-          loyalty={loyaltyHandlers}
-          onPay={() => void handleQrGen()}
-          onClose={() => setBillOpen(false)}
-        />
-      )}
-
+      {/* Menu QR (before any order) stays a popup. */}
       {menuQrOpen && (
         <MenuQrPopup
           restaurantName={snap.restaurantName}
           tableNumber={snap.table.number}
           menuUrl={typeof window === "undefined" ? "" : `${window.location.origin}/customer/${encodeURIComponent(tableId)}`}
           onClose={() => setMenuQrOpen(false)}
-        />
-      )}
-
-      {qrOpen && !snap.paid && order && (
-        <QrPopup
-          restaurantName={snap.restaurantName}
-          tableNumber={snap.table.number}
-          orderNumber={order.orderNumber}
-          state={qrState}
-          onRetry={() => void loadQr()}
-          onSimulatePayment={handleDemoPayment}
-          onClose={() => setQrOpen(false)}
         />
       )}
     </div>

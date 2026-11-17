@@ -8,7 +8,7 @@ export async function TopSellingItems() {
   const max = Math.max(1, ...items.map((i) => i.qtySold));
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <SectionHeader title="Top Selling Items" subtitle="By quantity, today" href="/owner/reports" hrefLabel="Reports" />
 
       <div className="mt-4 space-y-3.5">

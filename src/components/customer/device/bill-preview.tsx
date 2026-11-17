@@ -46,7 +46,7 @@ export function BillPreview({
       aria-label="Bill"
     >
       <div
-        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border p-4 sm:p-5"
         style={{ background: "var(--device-shell)", borderColor: "var(--device-gold)" }}
       >
         <div className="flex items-start justify-between gap-3">

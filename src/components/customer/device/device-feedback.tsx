@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import type { CartLine } from "@/components/customer/cart-context";
 import { submitDeviceFeedback } from "@/server/modules/feedback/actions";
+import { FEEDBACK_STRINGS, type FeedbackStrings } from "@/server/modules/feedback/i18n";
+import { FeedbackLanguageSwitch, useFeedbackLanguage } from "./feedback-language";
 
 const SCALE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
@@ -18,11 +20,13 @@ function NumberScale({
   label,
   value,
   onChange,
+  t,
   compact = false,
 }: {
   label: string;
   value: number;
   onChange: (n: number) => void;
+  t: FeedbackStrings;
   compact?: boolean;
 }) {
   return (
@@ -39,7 +43,7 @@ function NumberScale({
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={`${label}: ${n} out of 10`}
+            aria-label={t.ratingOutOf(label, n)}
             onClick={() => onChange(n)}
             className={`rounded-md border font-bold transition-transform active:scale-90 ${
               compact ? "h-6 w-6 text-[10px]" : "h-9 text-sm"
@@ -64,11 +68,13 @@ function Question({
   question,
   value,
   onChange,
+  t,
 }: {
   letter: string;
   question: string;
   value: number;
   onChange: (n: number) => void;
+  t: FeedbackStrings;
 }) {
   return (
     <div className="rounded-lg border p-3" style={{ borderColor: "var(--device-lcd-border)" }}>
@@ -91,7 +97,7 @@ function Question({
           {value ? `${value} / 10` : "— / 10"}
         </span>
       </div>
-      <NumberScale label={question} value={value} onChange={onChange} />
+      <NumberScale label={question} value={value} onChange={onChange} t={t} />
     </div>
   );
 }
@@ -121,15 +127,17 @@ export function DeviceFeedback({
   const [deviceUsability, setDeviceUsability] = useState(0);
   const [itemRatings, setItemRatings] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [language, setLanguage] = useFeedbackLanguage();
+  const t = FEEDBACK_STRINGS[language];
 
   async function handleSubmit() {
     if (!orderId) {
-      onNotice("info", "Place your order first, then rate your visit.");
+      onNotice("info", t.placeOrderFirst);
       return;
     }
 
     if (!overall || !foodTaste || !deviceUsability) {
-      onNotice("error", "Please answer all three questions (1–10).");
+      onNotice("error", t.answerAll);
       return;
     }
 
@@ -145,12 +153,13 @@ export function DeviceFeedback({
         itemId,
         rating,
       })),
+      language,
     });
 
     setSubmitting(false);
 
     if (result.ok) {
-      onNotice("success", "Thank you! Your feedback was submitted.");
+      onNotice("success", t.thanksToast);
       onSubmitted();
     } else {
       onNotice("error", result.error);
@@ -169,36 +178,33 @@ export function DeviceFeedback({
         className="text-center text-sm font-bold uppercase tracking-[0.2em]"
         style={{ color: "var(--device-gold)" }}
       >
-        Restaurant Feedback
+        {t.title}
       </h2>
+
+      <FeedbackLanguageSwitch value={language} onChange={setLanguage} label={t.language} />
 
       {alreadySubmitted ? (
         <p
           className="mt-3 rounded-md border px-3 py-4 text-center text-sm font-semibold"
           style={{ borderColor: "#1f6b3a", color: "#5fe08a", background: "rgba(31,107,58,0.12)" }}
         >
-          Thank you for your feedback!
+          {t.thanksBox}
         </p>
       ) : (
         <>
+          <p className="mt-3 text-center text-xs" style={{ color: "var(--device-lcd-muted)" }}>
+            {t.instruction}
+          </p>
+
           <div className="mt-3 space-y-3">
-            <Question
-              letter="A"
-              question="How would you rate our restaurant?"
-              value={overall}
-              onChange={setOverall}
-            />
-            <Question
-              letter="B"
-              question="How was the food taste?"
-              value={foodTaste}
-              onChange={setFoodTaste}
-            />
+            <Question letter="A" question={t.qOverall} value={overall} onChange={setOverall} t={t} />
+            <Question letter="B" question={t.qFood} value={foodTaste} onChange={setFoodTaste} t={t} />
             <Question
               letter="C"
-              question="How easy was the ordering device to use?"
+              question={t.qDevice}
               value={deviceUsability}
               onChange={setDeviceUsability}
+              t={t}
             />
           </div>
 
@@ -207,12 +213,12 @@ export function DeviceFeedback({
               className="text-[11px] font-bold uppercase tracking-widest"
               style={{ color: "var(--device-lcd-cyan)" }}
             >
-              Rate each dish (optional)
+              {t.dishesHeading}
             </h3>
 
             {orderLines.length === 0 ? (
               <p className="mt-2 text-xs" style={{ color: "var(--device-lcd-muted)" }}>
-                Dishes you order will appear here so you can rate them one by one.
+                {t.dishesEmpty}
               </p>
             ) : (
               <ul className="mt-2 space-y-1.5">
@@ -234,7 +240,8 @@ export function DeviceFeedback({
                       </span>
                       <NumberScale
                         compact
-                        label={`Rate ${line.name}`}
+                        label={t.rateDish(line.name)}
+                        t={t}
                         value={value}
                         onChange={(n) => setItemRatings((prev) => ({ ...prev, [key]: n }))}
                       />
@@ -258,7 +265,7 @@ export function DeviceFeedback({
             className="mt-4 w-full rounded-md py-3 text-sm font-semibold uppercase tracking-wide transition-transform active:scale-[0.98] disabled:opacity-60"
             style={{ background: "var(--device-gold)", color: "#171a10" }}
           >
-            {submitting ? "Submitting…" : "Submit Feedback"}
+            {submitting ? t.submitting : t.submit}
           </button>
         </>
       )}

@@ -14,6 +14,14 @@ import { getWaiterStateDb, type WaiterState } from "@/server/modules/orders/wait
 import { getBillByOrderIdDb, getBillPaymentSummaryDb } from "@/server/modules/billing/db-billing";
 import { getFeedbackByOrderId } from "@/server/modules/feedback/store";
 import { computeBillBreakdown } from "@/lib/bill-breakdown";
+import {
+  computeOfferDiscounts,
+  getOfferStatus,
+  offerValueLabel,
+  type AppliedOffer,
+  type Offer,
+} from "@/lib/offers-shared";
+import { getOffers, readBillOffers } from "@/server/modules/offers/store";
 import { formatBillNo, formatOrderNo, tableNumberFromLabel } from "@/lib/order-number";
 import { getGatewayConfig } from "@/server/modules/payments/gateway";
 import { getOpenIntent, verifyOpenIntent } from "@/server/modules/payments/intents";
@@ -40,10 +48,28 @@ export type BillView = {
   additionalTax: { label: string; percent: number; amount: number };
   serviceCharge: { percent: number; amount: number };
   discount: number;
+  /** Offers that make up part of `discount` (loyalty / manual discounts are the rest). */
+  offers: AppliedOffer[];
   total: number;
   paid: number;
   remaining: number;
   status: "unpaid" | "partial" | "paid";
+};
+
+/** A live offer, already worded for the table device. */
+export type CustomerOffer = {
+  id: string;
+  name: string;
+  description: string;
+  /** "20% OFF", "₹50 OFF", "₹199", "Buy 2 Get 1" */
+  valueLabel: string;
+  /** "Chicken Biryani", "Desserts" or "Whole order" */
+  targetLabel: string;
+  targetType: Offer["targetType"];
+  targetItemId: string | null;
+  targetCategory: string | null;
+  minimumOrderRupees: number | null;
+  endsAt: number;
 };
 
 export type CustomerSnapshot = {
@@ -60,6 +86,8 @@ export type CustomerSnapshot = {
   };
   bill: BillView | null;
   billId: string | null;
+  /** Offers running right now (switched on and between their start and end). */
+  offers: CustomerOffer[];
   waiter: WaiterState;
   feedbackSubmitted: boolean;
   /** True once the current order's bill is fully paid (session closed). */
@@ -104,14 +132,18 @@ async function findCurrentOrderId(tableId: string): Promise<{ id: string; paid: 
 }
 
 export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnapshot | null> {
-  const [table, menu, settings, current, waiter] = await Promise.all([
+  const [table, menu, settings, current, waiter, allOffers] = await Promise.all([
     getTableByIdDb(DEMO_RESTAURANT_ID, tableId),
     getMenuDb(DEMO_RESTAURANT_ID),
     getSettings(DEMO_RESTAURANT_ID),
     findCurrentOrderId(tableId),
     getWaiterStateDb(DEMO_RESTAURANT_ID, tableId),
+    getOffers(),
   ]);
   if (!table) return null;
+
+  const now = Date.now();
+  const liveOffers = allOffers.filter((o) => getOfferStatus(o, now) === "active");
 
   const tableNumber = tableNumberFromLabel(table.label);
   const menuVersion = createHash("sha1")
@@ -126,6 +158,23 @@ export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnap
     order: null,
     bill: null,
     billId: null,
+    offers: liveOffers.map((o) => ({
+      id: o.id,
+      name: o.name,
+      description: o.description,
+      valueLabel: offerValueLabel(o),
+      targetLabel:
+        o.targetType === "order"
+          ? "Whole order"
+          : o.targetType === "category"
+            ? (o.targetCategory ?? "Category")
+            : (menu.find((m) => m.id === o.targetItemId)?.name ?? "Menu item"),
+      targetType: o.targetType,
+      targetItemId: o.targetItemId,
+      targetCategory: o.targetCategory,
+      minimumOrderRupees: o.minimumOrderRupees,
+      endsAt: o.endsAt,
+    })),
     waiter,
     feedbackSubmitted: false,
     paid: false,
@@ -164,6 +213,7 @@ export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnap
     const summary = await getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, issued.id);
     const paid = summary?.paidRupees ?? 0;
     const status = summary?.status === "paid" || summary?.status === "refunded" ? "paid" : summary?.status === "partial" ? "partial" : "unpaid";
+    const billOffers = await readBillOffers(db, issued.id);
     base.billId = issued.id;
     base.paid = status === "paid";
     base.bill = {
@@ -179,6 +229,7 @@ export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnap
       additionalTax: { label: settings.additionalTaxLabel, percent: issued.additionalTaxPercent ?? 0, amount: issued.additionalTaxRupees ?? 0 },
       serviceCharge: { percent: issued.serviceChargePercent ?? 0, amount: issued.serviceChargeRupees },
       discount: issued.discountRupees,
+      offers: billOffers?.applied ?? [],
       total: issued.totalRupees,
       paid,
       remaining: summary?.remainingRupees ?? issued.totalRupees,
@@ -194,11 +245,20 @@ export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnap
   }
 
   // Provisional bill: the same calculation the issued bill will use, today's rates.
-  const calc = computeBillBreakdown(order.lines, {
-    gstPercent: settings.gstRatePercent,
-    additionalTaxPercent: settings.additionalTaxPercent,
-    serviceChargePercent: settings.serviceChargePercent,
-  });
+  const offerResult = computeOfferDiscounts(
+    order.lines.map((l) => ({ itemId: l.itemId, category: l.category, qty: l.qty, priceRupees: l.priceRupees })),
+    liveOffers,
+    now,
+  );
+  const calc = computeBillBreakdown(
+    order.lines,
+    {
+      gstPercent: settings.gstRatePercent,
+      additionalTaxPercent: settings.additionalTaxPercent,
+      serviceChargePercent: settings.serviceChargePercent,
+    },
+    offerResult.totalRupees,
+  );
   base.bill = {
     kind: "provisional",
     restaurantName: settings.name,
@@ -211,7 +271,8 @@ export async function getCustomerSnapshot(tableId: string): Promise<CustomerSnap
     gst: { percent: settings.gstRatePercent, amount: calc.gst },
     additionalTax: { label: settings.additionalTaxLabel, percent: settings.additionalTaxPercent, amount: calc.additionalTax },
     serviceCharge: { percent: settings.serviceChargePercent, amount: calc.serviceCharge },
-    discount: 0,
+    discount: calc.discount,
+    offers: offerResult.applied,
     total: calc.total,
     paid: 0,
     remaining: calc.total,

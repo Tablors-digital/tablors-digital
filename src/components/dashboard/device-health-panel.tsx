@@ -17,7 +17,7 @@ export async function DeviceHealthPanel() {
   const offline = devices.filter((d) => !d.online).length;
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <SectionHeader
         title="Device health"
         subtitle={`${devices.length - offline}/${devices.length} online${offline > 0 ? ` · ${offline} offline` : ""}`}

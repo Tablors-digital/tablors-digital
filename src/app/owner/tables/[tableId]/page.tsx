@@ -246,7 +246,7 @@ export default async function TableDetailsPage({
   const headerHold = table.status === "available" ? blockedReserve : hold;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       <AutoRefresh intervalMs={3000} />
 
       {notice && (
@@ -316,7 +316,7 @@ export default async function TableDetailsPage({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div
-          className={`rounded-[var(--radius-brand)] border ${style.border} ${style.bg} p-5`}
+          className={`rounded-[var(--radius-brand)] border ${style.border} ${style.bg} p-4 sm:p-5`}
         >
           <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
             Status
@@ -331,7 +331,7 @@ export default async function TableDetailsPage({
           </div>
         </div>
 
-        <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-5">
           <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
             Current items
           </p>
@@ -345,7 +345,7 @@ export default async function TableDetailsPage({
           </p>
         </div>
 
-        <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-5">
           <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
             Current total
           </p>
@@ -364,13 +364,13 @@ export default async function TableDetailsPage({
           MAIN CONTENT
       ================================================================= */}
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[1.5fr_1fr]">
         {/* ---------------------------------------------------------------
             CURRENT ORDER
         ---------------------------------------------------------------- */}
 
         <section className="overflow-hidden rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-          <div className="flex items-center justify-between border-b border-[var(--color-border)] p-6">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3 sm:p-6">
             <div>
               <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
                 Customer order
@@ -397,7 +397,7 @@ export default async function TableDetailsPage({
                   return (
                     <div
                       key={`${order.id}-${line.code}`}
-                      className="flex items-center justify-between gap-4 p-5"
+                      className="flex items-center justify-between gap-4 p-4 sm:p-5"
                     >
                       <div className="min-w-0">
                         <p className="font-medium text-[var(--color-text-primary)]">
@@ -424,7 +424,7 @@ export default async function TableDetailsPage({
                 })}
               </div>
 
-              <div className="border-t border-[var(--color-border)] p-6">
+              <div className="border-t border-[var(--color-border)] p-3 sm:p-6">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-[var(--color-text-muted)]">
                     Order total
@@ -437,7 +437,7 @@ export default async function TableDetailsPage({
               </div>
             </>
           ) : (
-            <div className="p-10 text-center">
+            <div className="p-4 sm:p-10 text-center">
               <p className="text-sm text-[var(--color-text-muted)]">
                 There is currently no active customer order for this table.
               </p>
@@ -452,7 +452,7 @@ export default async function TableDetailsPage({
         <section className="space-y-4">
           {/* Table controls */}
 
-          <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+          <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 sm:p-6">
             <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
               Table management
             </p>
@@ -535,7 +535,7 @@ export default async function TableDetailsPage({
           {/* Device (real record; only for roles with the devices permission) */}
 
           {canSeeDevices && (
-            <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+            <div className="rounded-[var(--radius-brand)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 sm:p-6">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
@@ -598,7 +598,7 @@ export default async function TableDetailsPage({
 
           {/* Remove */}
 
-          <div className="rounded-[var(--radius-brand)] border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5 p-6">
+          <div className="rounded-[var(--radius-brand)] border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5 p-3 sm:p-6">
             <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-danger)]">
               Danger zone
             </p>

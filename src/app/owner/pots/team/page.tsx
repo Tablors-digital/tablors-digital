@@ -11,7 +11,7 @@ export default function TeamPage() {
   const lim = getPotsRuntime().payouts.limits;
   const actions = Object.keys(ACTION_LABEL) as Action[];
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back /><Header title="Team & permissions" sub="What each role can do by default, and the limits and approvals that protect payouts." />
       <Section title="Roles">
         <div className="overflow-x-auto"><table className="w-full text-left text-xs text-zinc-400">

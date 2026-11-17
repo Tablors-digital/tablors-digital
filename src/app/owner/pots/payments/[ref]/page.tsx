@@ -12,7 +12,7 @@ export default async function PaymentResultPage({ params }: { params: Promise<{ 
   const lr = getLoyaltyRuntime(); const link = lr.links.get(v.providerRef);
   const pts = link ? lr.ledger.ledger(link.businessId, link.customerId).filter((t) => t.type === "EARN" && t.sourceId === link.billId).reduce((a, t) => a + t.points, 0) : 0;
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back /><Header title="Payment result" sub="Sandbox: simulated payment." />
       <Section title={v.status}><p className={`text-lg ${statusCls(v.status)}`}>{v.status}</p>
         <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-4"><div><dt className="text-xs text-zinc-500">Amount</dt><dd className="text-zinc-100">{formatINR(v.amount)}</dd></div><div><dt className="text-xs text-zinc-500">Provider ref</dt><dd className="text-zinc-300">{v.providerRef}</dd></div><div><dt className="text-xs text-zinc-500">Bill</dt><dd className="text-zinc-300">{v.billId}</dd></div><div><dt className="text-xs text-zinc-500">Allocation</dt><dd className="text-zinc-300">{v.allocationStatus}</dd></div></dl></Section>

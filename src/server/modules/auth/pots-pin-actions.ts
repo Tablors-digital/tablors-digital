@@ -2,6 +2,9 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { hasPermission } from "./permissions";
+import { armingCookieOptions, mintArmingToken } from "./pin-session";
+import { getDemoSession } from "./session";
 import { checkPotsPin, POTS_PIN_COOKIE } from "./pots-pin";
 
 export type PotsPinState =
@@ -10,24 +13,25 @@ export type PotsPinState =
 
 export async function verifyPotsPin(
   _prevState: PotsPinState,
-  formData: FormData
+  formData: FormData,
 ): Promise<PotsPinState> {
-  const pin = String(formData.get("pin") ?? "");
+  const session = await getDemoSession();
+  if (!session || !hasPermission(session.role, "pots")) redirect("/login");
 
+  const pin = String(formData.get("pin") ?? "");
   if (!checkPotsPin(pin)) {
     return { status: "error", message: "Incorrect PIN. Please try again." };
   }
 
   const cookieStore = await cookies();
-  cookieStore.set(POTS_PIN_COOKIE, "granted", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    // Shorter than the main session (8h) since this gates sensitive data —
-    // demo convenience only, re-verify after 15 minutes.
-    maxAge: 60 * 15,
-  });
+  cookieStore.set(POTS_PIN_COOKIE, mintArmingToken("pots"), armingCookieOptions());
 
   redirect("/owner/pots");
+}
+
+/** Lets the owner lock Financial Pots again straight away. */
+export async function lockPotsPage() {
+  const cookieStore = await cookies();
+  cookieStore.delete(POTS_PIN_COOKIE);
+  redirect("/owner/pots-pin");
 }

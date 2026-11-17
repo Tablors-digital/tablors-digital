@@ -10,6 +10,8 @@ import { getDemoSession } from "@/server/modules/auth/session";
 import {
   adjustPointsDb,
   createRewardDb,
+  deleteCustomerDb,
+  deleteRewardDb,
   saveLoyaltySettingsDb,
   setCustomerStatusDb,
   setRewardActiveDb,
@@ -137,6 +139,14 @@ export async function toggleRewardAction(formData: FormData): Promise<void> {
   done("reward-updated");
 }
 
+export async function deleteRewardAction(formData: FormData): Promise<void> {
+  const session = await authorize();
+  const id = String(formData.get("id") ?? "");
+  if (!id) done("invalid-reward");
+  const result = await deleteRewardDb(session.restaurantId, id);
+  done(result === "deleted" ? "reward-deleted" : result === "in-use" ? "reward-in-use" : "reward-missing");
+}
+
 /** Manual adjustments are owner-only, need a reason and are always logged with the actor. */
 export async function adjustPointsAction(formData: FormData): Promise<void> {
   const session = await authorize();
@@ -156,4 +166,14 @@ export async function setCustomerStatusAction(formData: FormData): Promise<void>
   const status = formData.get("status") === "blocked" ? "blocked" : "active";
   if (customerId) await setCustomerStatusDb(session.restaurantId, customerId, status);
   done("customer-updated", `&customer=${customerId}`);
+}
+
+/** Owner-only: permanently deletes a member and their points history. */
+export async function deleteCustomerAction(formData: FormData): Promise<void> {
+  const session = await authorize();
+  if (session.role !== "owner") done("owner-only");
+  const customerId = String(formData.get("customerId") ?? "");
+  if (!customerId) done("customer-missing");
+  const result = await deleteCustomerDb(session.restaurantId, customerId);
+  done(result === "deleted" ? "member-deleted" : result === "on-hold" ? "member-on-hold" : "customer-missing");
 }

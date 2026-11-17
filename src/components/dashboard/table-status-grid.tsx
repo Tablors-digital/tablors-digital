@@ -18,7 +18,7 @@ export async function TableStatusGrid() {
   const occupied = tables.filter((t) => t.status === "occupied").length;
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <SectionHeader
         title="Table Status"
         subtitle={`${occupied} occupied of ${tables.length}`}

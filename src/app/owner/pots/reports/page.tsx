@@ -16,7 +16,7 @@ function T({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
 export default function ReportsPage() {
   const rt = getPotsRuntime(); const r = buildReports(rt); const l = loyaltySummary(getLoyaltyRuntime(), "demo-business");
   
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Back /><Header title="Reports" sub="Derived from the ledger, payouts, payroll and audit log. Sandbox data." />
       <Section title="Reconciliation"><p className={r.reconciliation.ok ? "text-sm text-[var(--radium-green)]" : "text-sm text-red-400"}>{r.reconciliation.ok ? "Ledger reconciles: Pots + unallocated = merchant funds." : "Mismatch — investigate."}</p>
         <p className="text-xs text-zinc-500">{r.providerFees}</p>{r.reconciliation.exceptions.length ? <p className="text-xs text-amber-400">{r.reconciliation.exceptions.length} open exception(s)</p> : null}</Section>

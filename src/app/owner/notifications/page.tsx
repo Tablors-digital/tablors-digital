@@ -14,7 +14,7 @@ export default function NotificationsPage() {
   const shown = items.filter(n => filter === "ALL" || n.type === filter);
 
   return (
-    <main className="p-8 text-[#F2F3EC]">
+    <main className="p-4 sm:p-8 text-[#F2F3EC]">
       <h1 className="text-3xl font-semibold">Notifications</h1>
       <div className="mt-4 flex flex-wrap gap-2">
         {FILTERS.map(f => (

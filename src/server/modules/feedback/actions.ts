@@ -5,6 +5,12 @@ import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import { getBillByOrderIdDb } from "@/server/modules/billing/db-billing";
 import { getOrderFromDb } from "@/server/modules/orders/db-orders";
 import { getFeedbackByOrderId, submitFeedback } from "@/server/modules/feedback/store";
+import {
+  DEFAULT_FEEDBACK_LANGUAGE,
+  FEEDBACK_STRINGS,
+  isFeedbackLanguage,
+  type FeedbackLanguage,
+} from "@/server/modules/feedback/i18n";
 
 export type SubmitFeedbackInput = {
   orderId: string;
@@ -13,7 +19,13 @@ export type SubmitFeedbackInput = {
   serviceRating: number;
   orderingRating: number;
   comment: string;
+  language?: FeedbackLanguage;
 };
+
+/** Never trust the client: unknown values fall back to English. */
+function pickLanguage(value: unknown): FeedbackLanguage {
+  return isFeedbackLanguage(value) ? value : DEFAULT_FEEDBACK_LANGUAGE;
+}
 
 export type SubmitFeedbackResult = { ok: true } | { ok: false; error: string };
 
@@ -34,18 +46,20 @@ function isValidRating(n: number) {
 export async function submitCustomerFeedback(
   input: SubmitFeedbackInput
 ): Promise<SubmitFeedbackResult> {
+  const language = pickLanguage(input.language);
+  const t = FEEDBACK_STRINGS[language];
   const order = await getOrderFromDb(DEMO_RESTAURANT_ID, input.orderId);
   if (!order || order.tableId !== input.tableId) {
-    return { ok: false, error: "Order not found for this table." };
+    return { ok: false, error: t.errOrderNotFound };
   }
 
   const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, input.orderId);
   if (!bill || !bill.paymentMethod || !bill.paidAt) {
-    return { ok: false, error: "This order isn't marked as paid yet." };
+    return { ok: false, error: t.errNotPaid };
   }
 
   if (await getFeedbackByOrderId(input.orderId)) {
-    return { ok: false, error: "Feedback has already been submitted for this order." };
+    return { ok: false, error: t.errAlreadySubmitted };
   }
 
   if (
@@ -53,7 +67,7 @@ export async function submitCustomerFeedback(
     !isValidRating(input.serviceRating) ||
     !isValidRating(input.orderingRating)
   ) {
-    return { ok: false, error: "Please rate all three categories (1-5 stars)." };
+    return { ok: false, error: t.errRateAllThree };
   }
 
   await submitFeedback({
@@ -63,6 +77,7 @@ export async function submitCustomerFeedback(
     serviceRating: input.serviceRating,
     orderingRating: input.orderingRating,
     comment: input.comment.trim() ? input.comment.trim() : null,
+    language,
   });
 
   revalidatePath(`/customer/${input.tableId}`);
@@ -90,6 +105,7 @@ export type SubmitDeviceFeedbackInput = {
   /** itemId (or code) → 1–10. Only dishes the customer chose to rate. */
   itemRatings: { itemId: string; rating: number }[];
   comment?: string;
+  language?: FeedbackLanguage;
 };
 
 function isValidRating10(n: unknown): n is number {
@@ -109,20 +125,22 @@ function toFiveScale(n: number): number {
 export async function submitDeviceFeedback(
   input: SubmitDeviceFeedbackInput
 ): Promise<SubmitFeedbackResult> {
+  const language = pickLanguage(input.language);
+  const t = FEEDBACK_STRINGS[language];
   const order = await getOrderFromDb(DEMO_RESTAURANT_ID, input.orderId);
   if (!order || order.tableId !== input.tableId) {
-    return { ok: false, error: "Order not found for this table." };
+    return { ok: false, error: t.errOrderNotFound };
   }
 
   if (REQUIRE_PAID_FOR_DEVICE_FEEDBACK) {
     const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, input.orderId);
     if (!bill || !bill.paymentMethod || !bill.paidAt) {
-      return { ok: false, error: "This order isn't marked as paid yet." };
+      return { ok: false, error: t.errNotPaid };
     }
   }
 
   if (await getFeedbackByOrderId(input.orderId)) {
-    return { ok: false, error: "Feedback has already been submitted for this order." };
+    return { ok: false, error: t.errAlreadySubmitted };
   }
 
   if (
@@ -130,7 +148,7 @@ export async function submitDeviceFeedback(
     !isValidRating10(input.foodTaste) ||
     !isValidRating10(input.deviceUsability)
   ) {
-    return { ok: false, error: "Please rate all three questions (1–10)." };
+    return { ok: false, error: t.errRateAllThree };
   }
 
   const items: { itemId: string; code: string; name: string; rating: number }[] = [];
@@ -138,14 +156,14 @@ export async function submitDeviceFeedback(
 
   for (const entry of Array.isArray(input.itemRatings) ? input.itemRatings : []) {
     if (!isValidRating10(entry?.rating)) {
-      return { ok: false, error: "Dish ratings must be between 1 and 10." };
+      return { ok: false, error: t.errDishRange };
     }
 
     const line = order.lines.find(
       (l) => (l.itemId ?? l.code) === entry.itemId || l.code === entry.itemId
     );
     if (!line) {
-      return { ok: false, error: "A rated dish is not part of this order." };
+      return { ok: false, error: t.errDishNotOnOrder };
     }
 
     const key = line.itemId ?? line.code;
@@ -164,6 +182,7 @@ export async function submitDeviceFeedback(
     serviceRating: toFiveScale(input.overall),
     orderingRating: toFiveScale(input.deviceUsability),
     comment: comment || null,
+    language,
     deviceRatings: {
       overall: input.overall,
       foodTaste: input.foodTaste,

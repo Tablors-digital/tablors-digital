@@ -23,7 +23,7 @@ export function OrderDetailsPanel({
 }) {
   if (!order) {
     return (
-      <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-xl border border-[var(--kd-border)] bg-[var(--kd-surface)] p-6 text-center">
+      <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-xl border border-[var(--kd-border)] bg-[var(--kd-surface)] p-3 sm:p-6 text-center">
         <ClipboardList className="h-5 w-5 text-[var(--kd-muted)]" />
         <p className="text-sm text-[var(--kd-text-secondary)]">Select an order to view details.</p>
       </div>

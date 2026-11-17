@@ -32,7 +32,7 @@ export function CustomerMenuView({ items }: { items: MenuItem[] }) {
       />
 
       {visibleItems.length === 0 ? (
-        <p className="mt-8 text-sm text-[var(--tablor-text-muted)]">
+        <p className="mt-5 sm:mt-8 text-sm text-[var(--tablor-text-muted)]">
           No items in this category.
         </p>
       ) : (

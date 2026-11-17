@@ -411,7 +411,7 @@ function TableCard({
       <Link
         href={`/owner/tables/${table.id}`}
         aria-label={`Manage ${table.label}, ${label}`}
-        className="flex items-start justify-between gap-3 p-5 transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-radium-500)]"
+        className="flex items-start justify-between gap-3 p-4 sm:p-5 transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-radium-500)]"
       >
         <div>
           <p className="text-lg font-medium text-[var(--color-text-primary)]">
@@ -590,7 +590,7 @@ export default async function TablesAndDevicesPage({
   const nextTableLabel = getNextTableLabel(tables);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <AutoRefresh intervalMs={3000} />
 
       {/* Header */}
@@ -621,7 +621,7 @@ export default async function TablesAndDevicesPage({
             Add table
           </summary>
 
-          <div className="absolute right-0 z-20 mt-3 w-[min(320px,calc(100vw-2rem))] rounded-[var(--radius-brand,0.75rem)] border border-zinc-800 bg-zinc-950 p-5 shadow-xl">
+          <div className="absolute right-0 z-20 mt-3 w-[min(320px,calc(100vw-2rem))] rounded-[var(--radius-brand,0.75rem)] border border-zinc-800 bg-zinc-950 p-4 sm:p-5 shadow-xl">
             <p className="text-sm font-medium text-zinc-100">
               Add restaurant table
             </p>
@@ -782,7 +782,7 @@ export default async function TablesAndDevicesPage({
           </div>
         ) : (
           visibleActivities.length === 0 && (
-            <div className="rounded-[var(--radius-brand)] border border-dashed border-[var(--color-border)] p-10 text-center">
+            <div className="rounded-[var(--radius-brand)] border border-dashed border-[var(--color-border)] p-4 sm:p-10 text-center">
               <p className="text-sm text-[var(--color-text-muted)]">
                 No tables match this filter.
               </p>

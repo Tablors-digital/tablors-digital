@@ -83,7 +83,7 @@ export function MenuAvailabilityPanel({
 
       <div className="mt-3 flex-1 space-y-1.5 overflow-y-auto pr-1">
         {visibleItems.length === 0 && (
-          <p className="py-8 text-center text-xs text-[var(--kd-muted)]">No items match.</p>
+          <p className="py-4 sm:py-8 text-center text-xs text-[var(--kd-muted)]">No items match.</p>
         )}
         {visibleItems.map((item) => (
           <div

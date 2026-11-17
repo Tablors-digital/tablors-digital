@@ -22,7 +22,7 @@ export async function KitchenStatusPanel() {
   ];
 
   return (
-    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-5">
+    <div className="rounded-xl border border-[var(--ov-border)] bg-[var(--ov-surface)] p-4 sm:p-5">
       <SectionHeader title="Kitchen" subtitle="Live ticket status" href="/kitchen" hrefLabel="Open kitchen" />
 
       <div className="mt-4 grid grid-cols-3 gap-2">

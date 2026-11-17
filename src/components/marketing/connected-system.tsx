@@ -118,7 +118,7 @@ export function ConnectedSystem() {
   const [activeCard, setActiveCard] = useState<number | null>(null);
 
   return (
-    <section id="system" className="snap-section relative overflow-hidden bg-[var(--mkt-stage)] px-6 py-10 sm:py-12 lg:py-16">
+    <section id="system" className="snap-section relative overflow-hidden bg-[var(--mkt-stage)] px-4 sm:px-6 py-5 sm:py-12 lg:py-16">
       <div className="mkt-container">
         <Reveal className="max-w-2xl">
           <p className="text-xs uppercase tracking-[0.3em] text-[var(--mkt-lime)]">One connected system</p>
@@ -143,7 +143,7 @@ export function ConnectedSystem() {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setActiveCard(null);
           }}
         >
-          <StaggerGroup className="mt-10 grid gap-6 sm:mt-12 sm:grid-cols-3" stagger={0.12}>
+          <StaggerGroup className="mt-6 grid gap-4 sm:gap-6 sm:mt-12 sm:grid-cols-3" stagger={0.12}>
             {nodes.map((node, index) => {
               const Card = cardById[node.id];
               const isActive = activeCard === index;
@@ -200,7 +200,7 @@ export function ConnectedSystem() {
           </StaggerGroup>
         </div>
 
-        <Reveal delay={0.15} className="mt-10 max-w-xl border-t border-[var(--mkt-border)] pt-6 text-sm leading-relaxed text-[var(--mkt-text-secondary)]">
+        <Reveal delay={0.15} className="mt-6 sm:mt-10 max-w-xl border-t border-[var(--mkt-border)] pt-6 text-sm leading-relaxed text-[var(--mkt-text-secondary)]">
           Change a price on the owner dashboard, and every device shows it on the next order.
         </Reveal>
       </div>

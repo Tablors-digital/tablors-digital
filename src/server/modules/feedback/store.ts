@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import { getDoc, listDocs, putDoc } from "@/server/modules/data/documents";
+import { DEFAULT_FEEDBACK_LANGUAGE, type FeedbackLanguage } from "@/server/modules/feedback/i18n";
 
 /**
  * Customer feedback, persisted in PostgreSQL (one document per order, keyed
@@ -21,6 +22,8 @@ export type Feedback = {
   orderingRating: number;
   comment: string | null;
   submittedAt: number;
+  /** Language the customer used to answer. Older records have none (English). */
+  language?: FeedbackLanguage;
   /**
    * On-device feedback (1–10 scale). Absent on feedback from the post-payment
    * 1–5 form. The 1–5 fields above are always filled (device ratings are
@@ -59,6 +62,7 @@ export async function submitFeedback(input: {
   orderingRating: number;
   comment: string | null;
   deviceRatings?: DeviceRatings;
+  language?: FeedbackLanguage;
 }): Promise<Feedback> {
   const entry: Feedback = {
     id: `f_${randomUUID()}`,
@@ -69,6 +73,7 @@ export async function submitFeedback(input: {
     orderingRating: input.orderingRating,
     comment: input.comment,
     submittedAt: Date.now(),
+    language: input.language ?? DEFAULT_FEEDBACK_LANGUAGE,
     ...(input.deviceRatings ? { deviceRatings: input.deviceRatings } : {}),
   };
   await putDoc(DEMO_RESTAURANT_ID, COLLECTION, input.orderId, entry);

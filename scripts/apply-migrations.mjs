@@ -4,6 +4,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import postgres from "postgres";
+import nextEnv from "@next/env";
+
+// Read .env.local / .env like `next dev` and the seed script do, so this works without exporting variables.
+nextEnv.loadEnvConfig(process.cwd());
 
 const url = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
 if (!url) {

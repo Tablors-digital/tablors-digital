@@ -24,7 +24,7 @@ export function Features() {
   return (
     <section
       id="features"
-      className="snap-section px-6 py-10 sm:py-12 lg:py-16"
+      className="snap-section px-4 sm:px-6 py-5 sm:py-12 lg:py-16"
     >
       <div className="mkt-container">
         <Reveal className="max-w-2xl">
@@ -39,7 +39,7 @@ export function Features() {
           </h2>
         </Reveal>
 
-        <StaggerGroup className="mt-10 grid grid-cols-1 gap-x-10 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
+        <StaggerGroup className="mt-6 grid grid-cols-1 gap-x-10 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <StaggerItem
               key={feature.title}
@@ -56,7 +56,7 @@ export function Features() {
         </StaggerGroup>
 
 
-        <Reveal delay={0.1} className="mt-10 border-t border-[var(--mkt-border)] pt-8">
+        <Reveal delay={0.1} className="mt-6 sm:mt-10 border-t border-[var(--mkt-border)] pt-4 sm:pt-8">
           <h3 className="text-sm uppercase tracking-[0.2em] text-[var(--mkt-lime)]">Why choose Tablor&apos;s</h3>
           <ul className="mt-4 grid gap-x-10 gap-y-2 text-sm text-[var(--mkt-text-secondary)] sm:grid-cols-2 lg:grid-cols-3">
             {benefits.map((b) => (

@@ -10,9 +10,9 @@ import { BusinessTypes } from "@/components/marketing/business-types";
 import { Pricing } from "@/components/marketing/pricing";
 import { DemoSection } from "@/components/marketing/demo-section";
 
-// `absolute` keeps this exact title, whatever title template the layout sets.
-// A page-level `openGraph` replaces the layout's `openGraph` completely, so
-// `siteName` and `type` are repeated here on purpose.
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://www.tablors.com";
+
 export const metadata: Metadata = {
   title: {
     absolute: "Table Ordering System for Restaurants, Hotels & Hospitals | Tablor's",
@@ -26,14 +26,63 @@ export const metadata: Metadata = {
     title: "Table Ordering System for Restaurants, Hotels & Hospitals | Tablor's",
     description:
       "A small ordering device on every table. Orders go straight to the kitchen, and you can see every table and bill in one place.",
+    url: "/",
     siteName: "Tablor's",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Table Ordering System for Restaurants, Hotels & Hospitals | Tablor's",
+    description:
+      "A small ordering device on every table. Orders go straight to the kitchen, and you can see every table and bill in one place.",
+  },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${siteUrl}/#organization`,
+      name: "Tablor's",
+      url: siteUrl,
+      email: "tablor.digital@gmail.com",
+      telephone: "+91-8500075183",
+      contactPoint: {
+        "@type": "ContactPoint",
+        telephone: "+91-8500075183",
+        email: "tablor.digital@gmail.com",
+        contactType: "sales",
+        availableLanguage: ["English", "Hindi", "Telugu"],
+      },
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Tablor's Smart Table Ordering System",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web, Android, iOS",
+      description:
+        "Countertop table ordering device and kitchen management system for restaurants, hotels, cafes, and hospitals.",
+      provider: {
+        "@id": `${siteUrl}/#organization`,
+      },
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "INR",
+        availability: "https://schema.org/InStock",
+      },
+    },
+  ],
 };
 
 export default function MarketingHome() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       <Hero />
 
       <BusinessTypes />
@@ -50,7 +99,6 @@ export default function MarketingHome() {
 
       <Pricing />
 
-      {/* Actual demo request form */}
       <DemoSection />
     </>
   );

@@ -76,7 +76,7 @@ export function OrderColumn({
 
       <div className="mt-3 flex-1 space-y-3">
         {sorted.length === 0 && (
-          <p className="py-8 text-center text-xs text-[var(--kd-muted)]">Nothing here.</p>
+          <p className="py-4 sm:py-8 text-center text-xs text-[var(--kd-muted)]">Nothing here.</p>
         )}
 
         {sorted.map((order) => (

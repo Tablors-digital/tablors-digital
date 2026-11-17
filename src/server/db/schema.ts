@@ -1,4 +1,3 @@
-
 import { sql } from "drizzle-orm";
 
 import {
@@ -9,11 +8,11 @@ import {
   real,
   boolean,
   timestamp,
- 
   index,
   uniqueIndex,
   primaryKey,
   jsonb,
+  bigint,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -588,6 +587,46 @@ export const appDocuments = pgTable(
   ],
 ).enableRLS();
 
+/**
+ * Staff attendance: one row per person per working day.
+ * - `workDate` is the (Asia/Kolkata) day the shift STARTED, so overnight shifts
+ *   stay on the day they began and may be checked out after midnight.
+ * - staff_attendance_day_unique stops a day being recorded twice.
+ * - staff_attendance_one_open_unique allows at most one open shift per person,
+ *   which makes check-in atomic even under concurrent requests.
+ * - workedMinutes is stored at check-out (null while the shift is open).
+ */
+export const staffAttendance = pgTable(
+  "staff_attendance",
+  {
+    id: text("id").primaryKey(), // `${staffId}:${workDate}`
+    restaurantId: text("restaurant_id").notNull(),
+    staffId: text("staff_id").notNull(),
+    workDate: text("work_date").notNull(), // yyyy-mm-dd
+    checkInAt: timestamp("check_in_at", { withTimezone: true }),
+    checkOutAt: timestamp("check_out_at", { withTimezone: true }),
+    workedMinutes: integer("worked_minutes"),
+    corrections: jsonb("corrections").notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("staff_attendance_day_unique").on(
+      t.restaurantId,
+      t.staffId,
+      t.workDate,
+    ),
+    uniqueIndex("staff_attendance_one_open_unique")
+      .on(t.restaurantId, t.staffId)
+      .where(sql`${t.checkInAt} IS NOT NULL AND ${t.checkOutAt} IS NULL`),
+    index("staff_attendance_period_idx").on(t.restaurantId, t.workDate),
+  ],
+).enableRLS();
+
 // ---------------------------------------------------------------------------
 // Loyalty points (separate ledger from money/Pots). See docs/loyalty.md.
 // ---------------------------------------------------------------------------
@@ -682,6 +721,9 @@ export const loyaltyRedemptions = pgTable(
   (t) => [
     index("loyalty_redemptions_bill_idx").on(t.billId),
     index("loyalty_redemptions_customer_idx").on(t.customerId),
+    uniqueIndex("loyalty_redemptions_active_bill_unique")
+      .on(t.billId)
+      .where(sql`${t.status} IN ('held','committed')`),
   ]
 );
 
@@ -712,4 +754,72 @@ export const paymentIntents = pgTable(
     uniqueIndex("payment_intents_provider_ref_unique").on(t.provider, t.providerRef),
     index("payment_intents_bill_idx").on(t.billId),
   ],
+).enableRLS();
+
+export const pots = pgTable(
+  "pots",
+  {
+    id: text("id").primaryKey(),
+    businessId: text("business_id").notNull(),
+    type: text("type").notNull(), // GST | SALARY | INVENTORY | ... | CUSTOM
+    name: text("name").notNull(),
+    targetPaise: bigint("target_paise", { mode: "number" }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("pots_active_name_unique")
+      .on(t.businessId, sql`lower(${t.name})`)
+      .where(sql`${t.archivedAt} IS NULL`),
+    index("pots_business_idx").on(t.businessId),
+  ],
+).enableRLS();
+
+export const ledgerJournals = pgTable(
+  "ledger_journals",
+  {
+    id: text("id").primaryKey(),
+    businessId: text("business_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    sourceId: text("source_id").notNull(),
+    actorId: text("actor_id").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("ledger_journals_key_unique").on(t.businessId, t.idempotencyKey)],
+).enableRLS();
+
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: text("id").primaryKey(),
+    businessId: text("business_id").notNull(),
+    journalId: text("journal_id").notNull(),
+    account: text("account").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(), // signed
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    ruleId: text("rule_id"),
+    ruleVersion: integer("rule_version"),
+    actorId: text("actor_id").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("ledger_entries_account_idx").on(t.businessId, t.account, t.createdAt),
+    index("ledger_entries_journal_idx").on(t.journalId),
+  ],
+).enableRLS();
+
+/** Cache + lock target. Always equals SUM(ledger_entries) per account. */
+export const ledgerBalances = pgTable(
+  "ledger_balances",
+  {
+    businessId: text("business_id").notNull(),
+    account: text("account").notNull(),
+    balancePaise: bigint("balance_paise", { mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.businessId, t.account] })],
 ).enableRLS();

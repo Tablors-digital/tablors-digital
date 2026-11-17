@@ -3,10 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { getDemoRole } from "@/server/modules/auth/session";
+import { DEMO_RESTAURANT_ID, getDemoRole } from "@/server/modules/auth/session";
+import { isValidPeriod } from "@/lib/staff-hours";
+import { buildPayrollSource } from "./payroll-source";
 import { getPotsPinVerified } from "@/server/modules/auth/pots-session";
-import { enrolMember, getLoyaltyRuntime, publishLoyaltyRule, setMemberStatus } from "@/server/modules/financial-pots/loyalty-runtime";
-import type { RewardType } from "@/server/modules/financial-pots/core/rewards";
+import {
+  adjustPointsDb,
+  createRewardDb,
+  findOrCreateCustomerDb,
+  saveLoyaltySettingsDb,
+  setCustomerStatusDb,
+} from "@/server/modules/loyalty-db/db-loyalty";
+import type { RewardType } from "@/server/modules/loyalty-db/engine";
 import { parseRupees } from "./money";
 import { simulatedProvider } from "./payouts";
 import { DEMO_BUSINESS_ID as B, getPotsRuntime } from "./runtime";
@@ -22,9 +30,13 @@ const txt = (f: FormData, k: string) => { const v = f.get(k); return typeof v ==
 const money = (f: FormData, k: string) => { const p = parseRupees(txt(f, k)); if (p === null || p <= 0) throw new Error("Enter a valid amount greater than zero (max 2 decimals)."); return p; };
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-async function run(path: string, fn: (a: Awaited<ReturnType<typeof actor>>) => string | void): Promise<never> {
+async function run(
+  path: string,
+  fn: (a: Awaited<ReturnType<typeof actor>>) => string | void | Promise<string | void>,
+): Promise<never> {
   let code = "done";
-  try { code = fn(await actor()) ?? "done"; } catch (e) { code = `error:${e instanceof Error ? e.message : "Something went wrong"}`; }
+  try { code = (await fn(await actor())) ?? "done"; }
+  catch (e) { code = `error:${e instanceof Error ? e.message : "Something went wrong"}`; }
   revalidatePath("/owner/pots", "layout");
   redirect(`${path}?notice=${encodeURIComponent(code)}`);
 }
@@ -43,9 +55,7 @@ export async function movePotAction(f: FormData): Promise<void> {
 }
 
 // ---------- Team / directory ----------
-export async function addEmployeeAction(f: FormData): Promise<void> {
-  return run("/owner/pots/salary", (a) => { rt().directory.addEmployee(B, { name: txt(f, "name"), payoutRef: txt(f, "payoutRef"), salaryPaise: money(f, "salary") }, a.role); return "Employee added."; });
-}
+// Employees are managed ONLY in the Staff module (/owner/staff); payroll reads them from there.
 export async function addVendorAction(f: FormData): Promise<void> {
   return run("/owner/pots/suppliers", (a) => { rt().directory.addVendor(B, { name: txt(f, "name"), payoutRef: txt(f, "payoutRef") }, a.role); return "Supplier added."; });
 }
@@ -57,9 +67,13 @@ export async function createPayrollRunAction(f: FormData): Promise<void> {
   let failed = "";
   try {
     const a = await actor();
-    const period = txt(f, "period"); if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Choose a payroll month.");
-    const emps = rt().directory.employees(B); if (!emps.length) throw new Error("Add at least one employee first.");
-    rt().payroll.createRun({ runId, businessId: B, potId: salaryPot, period, actorId: a.id, role: a.role, employees: emps.map((e) => ({ employeeId: e.id, name: e.name, payoutRef: e.payoutRef, salaryPaise: e.salaryPaise })) });
+    const period = txt(f, "period"); if (!isValidPeriod(period)) throw new Error("Choose a payroll month.");
+    // One draft per month: a second run for the same period could pay everyone twice.
+    if (rt().payroll.list(B).some((r) => r.period === period)) throw new Error(`A payroll run for ${period} already exists. Open it from the list below.`);
+    const rows = (await buildPayrollSource(DEMO_RESTAURANT_ID, period)).filter((r) => r.excluded === null && r.payable);
+    if (!rows.length) throw new Error("No active staff with a monthly salary. Add salaries in the Staff module first.");
+    // payoutRef is only an internal reference (no bank details are stored yet; provider payouts are simulated).
+    rt().payroll.createRun({ runId, businessId: B, potId: salaryPot, period, actorId: a.id, role: a.role, employees: rows.map((r) => ({ employeeId: r.staffId, name: `${r.name} (${r.employeeCode})`, payoutRef: `staff:${r.staffId}`, salaryPaise: r.payable!.payablePaise })) });
   } catch (e) { failed = e instanceof Error ? e.message : "Could not create the payroll run."; }
   revalidatePath("/owner/pots", "layout");
   redirect(failed ? `/owner/pots/salary?notice=${encodeURIComponent("error:" + failed)}` : `/owner/pots/salary/${runId}`);
@@ -139,48 +153,89 @@ export async function cancelPayoutAction(f: FormData): Promise<void> {
   return run("/owner/pots/approvals", (a) => { rt().payouts.cancelPayout(txt(f, "payoutId"), a.id, a.role); return "Cancelled."; });
 }
 
-// ---------- Loyalty ----------
+// ---------- Loyalty (PostgreSQL, the single source of truth) ----------
+const R = DEMO_RESTAURANT_ID;
+const optInt = (f: FormData, k: string): number | null => {
+  const v = txt(f, k);
+  if (!v) return null;
+  if (!/^\d{1,9}$/.test(v)) throw new Error(`${k} must be a whole number.`);
+  return Number(v);
+};
+
 export async function saveLoyaltySettingsAction(f: FormData): Promise<void> {
-  return run("/owner/pots/loyalty", (a) => {
-    const n = (k: string) => { const v = txt(f, k); if (!v) return undefined; if (!/^\d{1,9}$/.test(v)) throw new Error(`${k} must be a whole number.`); return Number(v); };
-    const per = n("pointsPerBlock"); const block = parseRupees(txt(f, "blockRupees"));
+  return run("/owner/pots/loyalty", async (a) => {
+    if (a.role !== "OWNER" && a.role !== "MANAGER") throw new Error("You cannot change loyalty settings.");
+    const per = optInt(f, "pointsPerBlock");
+    const block = parseRupees(txt(f, "blockRupees"));
     if (!per || per < 1 || block === null || block < 1) throw new Error("Set points and rupee block (for example 1 point per ₹10).");
-    const minBill = txt(f, "minBill") ? parseRupees(txt(f, "minBill")) : null;
-    publishLoyaltyRule(getLoyaltyRuntime(), {
-      businessId: B, enabled: txt(f, "enabled") === "on", pointsPerBlock: per, blockPaise: block, deductDiscounts: txt(f, "deductDiscounts") === "on",
-      excludeGst: txt(f, "excludeGst") === "on", excludeServiceCharge: txt(f, "excludeService") === "on", excludeDelivery: txt(f, "excludeDelivery") === "on", excludeTips: txt(f, "excludeTips") === "on",
-      excludedCategories: txt(f, "excludedCategories").split(",").map((x) => x.trim()).filter(Boolean), excludedItemIds: [], campaigns: [],
-      minBillPaise: minBill ?? undefined, maxPointsPerBill: n("maxPerBill"), maxPointsPerDay: n("maxPerDay"), maxPointsPerMonth: n("maxPerMonth"),
-      expiryDays: n("expiryDays"), refundPolicy: txt(f, "refundPolicy") === "FULL_ONLY" ? "FULL_ONLY" : "PROPORTIONAL",
-    }, a.role);
-    return "Loyalty settings saved as a new version.";
+    const minBill = txt(f, "minBill") ? parseRupees(txt(f, "minBill")) : 0;
+    if (minBill === null) throw new Error("Enter a valid minimum bill.");
+    await saveLoyaltySettingsDb(R, {
+      enabled: txt(f, "enabled") === "on",
+      earnPoints: per,
+      earnSpendPaise: block,
+      excludeGst: txt(f, "excludeGst") === "on",
+      excludeServiceCharge: txt(f, "excludeService") === "on",
+      discountBeforePoints: txt(f, "deductDiscounts") === "on",
+      minBillPaise: minBill,
+      maxPointsPerBill: optInt(f, "maxPerBill"),
+      expiryMonths: optInt(f, "expiryMonths"),
+      minPointsToRedeem: optInt(f, "minPointsToRedeem") ?? 0,
+    });
+    return "Loyalty settings saved.";
   });
 }
+
 export async function createRewardAction(f: FormData): Promise<void> {
-  return run("/owner/pots/loyalty", (a) => {
-    const type = txt(f, "type") as RewardType; const cost = Number(txt(f, "pointsCost"));
-    const value = txt(f, "value") ? parseRupees(txt(f, "value")) : null; const pct = txt(f, "percent") ? Number(txt(f, "percent")) : undefined;
-    const qty = txt(f, "quantity") ? Number(txt(f, "quantity")) : null;
-    getLoyaltyRuntime().catalog.create({
-      id: uid("rw"), businessId: B, name: txt(f, "name"), type, pointsCost: cost, discountPaise: value ?? undefined,
-      percentBps: pct !== undefined ? Math.round(pct * 100) : undefined, maxDiscountPaise: value ?? undefined, quantity: qty, active: true, terms: txt(f, "terms") || undefined,
-    }, a.role === "OWNER" ? "OWNER" : a.role === "MANAGER" ? "MANAGER" : "STAFF");
+  return run("/owner/pots/loyalty", async (a) => {
+    if (a.role !== "OWNER" && a.role !== "MANAGER") throw new Error("You cannot add rewards.");
+    const name = txt(f, "name");
+    if (name.length < 2) throw new Error("Enter a reward name.");
+    const cost = optInt(f, "pointsCost");
+    if (!cost || cost < 1) throw new Error("Points cost must be at least 1.");
+    const value = txt(f, "value") ? parseRupees(txt(f, "value")) : null;
+    if (txt(f, "value") && value === null) throw new Error("Enter a valid value.");
+    const pct = optInt(f, "percent");
+    if (pct !== null && (pct < 1 || pct > 100)) throw new Error("Percent must be 1–100.");
+    await createRewardDb(R, {
+      name,
+      type: txt(f, "type") as RewardType,
+      pointsCost: cost,
+      valuePaise: value,
+      percent: pct,
+      maxDiscountPaise: value,
+      quantity: optInt(f, "quantity"),
+      terms: txt(f, "terms") || null,
+      validFrom: null,
+      validTo: null,
+    });
     return "Reward added.";
   });
 }
+
 export async function enrolMemberAction(f: FormData): Promise<void> {
-  return run("/owner/pots/loyalty", () => { enrolMember(getLoyaltyRuntime(), B, { name: txt(f, "name"), phone: txt(f, "phone") }); return "Member enrolled."; });
+  return run("/owner/pots/loyalty", async () => {
+    const c = await findOrCreateCustomerDb(R, txt(f, "phone"));
+    if (!c) throw new Error("Enter a valid 10-digit mobile number.");
+    return "Member enrolled.";
+  });
 }
+
 export async function adjustPointsAction(f: FormData): Promise<void> {
   const id = txt(f, "memberId");
-  return run(`/owner/pots/loyalty/${id}`, (a) => {
-    if (a.role === "STAFF" || a.role === "ACCOUNTANT") throw new Error("You cannot adjust points.");
-    const pts = Number(txt(f, "points"));
-    getLoyaltyRuntime().ledger.adjust({ businessId: B, customerId: id, adjustmentId: uid("adj"), points: pts, reason: txt(f, "reason"), actorId: a.id, role: a.role === "OWNER" ? "OWNER" : "MANAGER" });
+  return run(`/owner/pots/loyalty/${id}`, async (a) => {
+    if (a.role !== "OWNER" && a.role !== "MANAGER") throw new Error("You cannot adjust points.");
+    const res = await adjustPointsDb(R, id, Number(txt(f, "points")), txt(f, "reason"), a.id, txt(f, "requestId") || uid("adj"));
+    if (!res.ok) throw new Error(res.message);
     return "Points adjusted and logged.";
   });
 }
+
 export async function setMemberStatusAction(f: FormData): Promise<void> {
   const id = txt(f, "memberId");
-  return run(`/owner/pots/loyalty/${id}`, (a) => { setMemberStatus(getLoyaltyRuntime(), id, txt(f, "status") === "SUSPENDED" ? "SUSPENDED" : "ACTIVE", a.role); return "Member updated."; });
+  return run(`/owner/pots/loyalty/${id}`, async (a) => {
+    if (a.role !== "OWNER" && a.role !== "MANAGER") throw new Error("You cannot change member status.");
+    await setCustomerStatusDb(R, id, txt(f, "status") === "SUSPENDED" ? "blocked" : "active");
+    return "Member updated.";
+  });
 }

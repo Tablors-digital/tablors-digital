@@ -6,10 +6,10 @@ export function Contact() {
   return (
     <section
       id="contact"
-      className="min-h-[70vh] border-t border-[var(--mkt-border)] bg-[var(--mkt-stage)] px-6 py-20 sm:py-24"
+      className="sm:min-h-[70vh] border-t border-[var(--mkt-border)] bg-[var(--mkt-stage)] px-4 sm:px-6 py-10 sm:py-24"
       style={{ scrollMarginTop: "4.25rem" }}
     >
-      <div className="mkt-container grid items-center gap-12 md:grid-cols-[1fr_auto] md:gap-20">
+      <div className="mkt-container grid items-center gap-6 sm:gap-12 md:grid-cols-[1fr_auto] md:gap-20">
         <Reveal>
           <p className="text-xs uppercase tracking-[0.3em] text-[var(--mkt-lime)]">
             Contact Tablor
@@ -27,7 +27,7 @@ export function Contact() {
             kitchen and keeps billing accurate.
           </p>
 
-          <div className="mt-8">
+          <div className="mt-5 sm:mt-8">
             <CtaButton
               href="/#demo"
               glow="lime"

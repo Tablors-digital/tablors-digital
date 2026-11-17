@@ -18,6 +18,13 @@ import { TableStatusGrid } from "@/components/dashboard/table-status-grid";
 import { KitchenStatusPanel } from "@/components/dashboard/kitchen-status-panel";
 import { DeviceHealthPanel } from "@/components/dashboard/device-health-panel";
 import { TopSellingItems } from "@/components/dashboard/top-selling-items";
+import { LiveRefresh } from "@/components/live/live-refresh";
+import {
+  InsightsPanel,
+  InventoryAlertsPanel,
+  PaymentsPanel,
+  StaffAttendancePanel,
+} from "@/components/dashboard/business-panels";
 
 function PanelSkeleton({ className = "h-64" }: { className?: string }) {
   return (
@@ -47,7 +54,9 @@ export default async function OwnerDashboardPage() {
       : 0;
 
   return (
-    <div className="tablor-owner-overview space-y-6">
+    <div className="tablor-owner-overview space-y-3 sm:space-y-6">
+      {/* New orders appear in Latest Orders without a manual refresh */}
+      <LiveRefresh intervalMs={5000} />
       {/* Header + notification bell: the owner sees new alerts without opening the sidebar page */}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
@@ -81,6 +90,22 @@ export default async function OwnerDashboardPage() {
 <TableStatusGrid />
 </Suspense>
         </div>
+      </div>
+
+      {/* Money, people and stock: payments, staff attendance, inventory alerts, insights */}
+      <div className="grid gap-3 sm:gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Suspense fallback={<PanelSkeleton className="h-48" />}>
+          <PaymentsPanel />
+        </Suspense>
+        <Suspense fallback={<PanelSkeleton className="h-48" />}>
+          <StaffAttendancePanel />
+        </Suspense>
+        <Suspense fallback={<PanelSkeleton className="h-48" />}>
+          <InventoryAlertsPanel />
+        </Suspense>
+        <Suspense fallback={<PanelSkeleton className="h-48" />}>
+          <InsightsPanel />
+        </Suspense>
       </div>
 
       {/* What's moving right now, and what's selling */}

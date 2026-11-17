@@ -77,7 +77,7 @@ export function BusinessTypes() {
     <>
       <section
         aria-label="Perfect for restaurants, trains, hotel room service and hospitals"
-        className="border-y border-[var(--mkt-border)] bg-[var(--mkt-stage)] px-6 py-10 sm:py-12 lg:py-16"
+        className="border-y border-[var(--mkt-border)] bg-[var(--mkt-stage)] px-4 sm:px-6 py-5 sm:py-12 lg:py-16"
       >
         <div className="mkt-container">
           <Reveal className="max-w-2xl">
@@ -90,7 +90,7 @@ export function BusinessTypes() {
           </Reveal>
 
           <ul
-            className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:gap-6"
+            className="mt-6 sm:mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:gap-6"
             onPointerLeave={() => setHovered(null)}
           >
             {venues.map((v, i) => {
@@ -165,7 +165,7 @@ export function BusinessTypes() {
                       }}
                     />
 
-                    <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-5">
+                    <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4 sm:p-5">
                       <div className="min-w-0">
                         <h3
                           className={`text-2xl leading-tight transition-colors duration-500 motion-reduce:transition-none ${

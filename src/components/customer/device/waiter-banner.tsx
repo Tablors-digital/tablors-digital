@@ -3,7 +3,7 @@
 import type { WaiterState } from "@/server/modules/orders/waiter";
 
 /**
- * Waiter-call popup pinned to the TOP of the device. It reflects the real,
+ * Waiter-call status shown in the FOOTER of the device (above the notices). It reflects the real,
  * server-side state: ringing until staff acknowledge it on the owner
  * dashboard, then "on the way".
  */
@@ -17,7 +17,7 @@ export function WaiterBanner({ waiter, onDismiss }: { waiter: WaiterState; onDis
     <div
       role="alert"
       aria-live="assertive"
-      className="tablor-notice-in sticky top-1 z-30 mx-1 mb-2 flex items-center gap-3 rounded-lg border px-3 py-2.5 shadow-lg sm:mx-2"
+      className="tablor-notice-in mx-1 mb-1.5 flex items-center gap-3 rounded-lg border px-3 py-2.5 shadow-lg sm:mx-2"
       style={{ borderColor: color, background: ringing ? "rgba(60,38,6,0.96)" : "rgba(10,48,24,0.96)", color }}
     >
       {ringing && (
@@ -44,7 +44,7 @@ export function WaiterBanner({ waiter, onDismiss }: { waiter: WaiterState; onDis
         className="shrink-0 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
         style={{ borderColor: color, color }}
       >
-        Hide
+        Hide <span className="opacity-70">(Esc)</span>
       </button>
     </div>
   );

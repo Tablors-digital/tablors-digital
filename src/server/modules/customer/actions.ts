@@ -149,7 +149,8 @@ export async function getCustomerOrderState(
  * open order of the supplied table (ALL confirmed rounds, one combined bill).
  * Rates come from the owner's current billing settings and are frozen on the
  * bill; if more items are confirmed before payment the same bill is
- * recomputed with those same frozen rates. Manual discounts stay with the owner.
+ * recomputed with those same frozen rates. Live offers (Offers & Promotions) are
+ * applied automatically as part of the discount; manual discounts stay with the owner.
  */
 export async function generateCustomerBill(
   tableId: string,
@@ -176,7 +177,7 @@ export async function generateCustomerBill(
       discountRupees: 0,
     },
     undefined,
-    { allowBeforeServed: true }
+    { allowBeforeServed: true, applyOffers: true }
   );
 
   if (!result.ok) {

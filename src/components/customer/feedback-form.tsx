@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { StarRating } from "./star-rating";
 import { submitCustomerFeedback } from "@/server/modules/feedback/actions";
+import { useFeedbackLanguage } from "./device/feedback-language";
 
 export function FeedbackForm({
   orderId,
@@ -19,6 +20,7 @@ export function FeedbackForm({
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [language] = useFeedbackLanguage();
 
   const allRated = foodRating > 0 && serviceRating > 0 && orderingRating > 0;
 
@@ -38,6 +40,7 @@ export function FeedbackForm({
       serviceRating,
       orderingRating,
       comment,
+      language,
     });
 
     setSubmitting(false);
@@ -52,7 +55,7 @@ export function FeedbackForm({
   }
 
   return (
-    <div className="rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] p-5">
+    <div className="rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] p-4 sm:p-5">
       <h2 className="text-lg font-semibold text-[var(--tablor-text-primary)]">
         How was your experience?
       </h2>

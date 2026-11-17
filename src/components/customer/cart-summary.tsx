@@ -83,7 +83,7 @@ export function CartSummary({ tableId }: { tableId: string }) {
   if (cart.lines.length === 0) {
     if (lastOrderId) {
       return (
-        <div className="rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] px-4 py-5 text-center">
+        <div className="rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] px-4 py-4 sm:py-5 text-center">
           <p className="text-sm font-medium text-[var(--tablor-accent)]">
             Order placed — #{lastOrderId}
           </p>
@@ -97,7 +97,7 @@ export function CartSummary({ tableId }: { tableId: string }) {
     }
 
     return (
-      <div className="rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] px-4 py-5 text-center">
+      <div className="rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] px-4 py-4 sm:py-5 text-center">
         <p className="text-sm text-[var(--tablor-text-muted)]">
           Your cart is empty. Add items from the menu above.
         </p>

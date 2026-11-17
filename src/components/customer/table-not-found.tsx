@@ -7,7 +7,7 @@
  */
 export function TableNotFound({ tableId }: { tableId: string }) {
   return (
-    <div className="flex flex-col items-center rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] px-6 py-12 text-center">
+    <div className="flex flex-col items-center rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] px-4 sm:px-6 py-6 sm:py-12 text-center">
       <span
         aria-hidden
         className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--tablor-error)]/40 text-2xl text-[var(--tablor-error)]"

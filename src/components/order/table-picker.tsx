@@ -64,7 +64,7 @@ function TableCard({ table }: { table: RestaurantTable }) {
       <Link
         href={`/customer/${table.id}`}
         aria-label={`${table.label} — available, view menu`}
-        className="block rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] p-5 shadow-[0_0_0_1px_var(--tablor-accent)] transition-transform active:scale-[0.98]"
+        className="block rounded-2xl border border-[var(--tablor-accent)] bg-[var(--tablor-card)] p-4 sm:p-5 shadow-[0_0_0_1px_var(--tablor-accent)] transition-transform active:scale-[0.98]"
       >
         {cardBody}
       </Link>
@@ -75,7 +75,7 @@ function TableCard({ table }: { table: RestaurantTable }) {
     <div
       aria-disabled="true"
       aria-label={`${table.label} — ${STATUS_LABEL[table.status].toLowerCase()}, not selectable`}
-      className="cursor-not-allowed rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] p-5 opacity-60"
+      className="cursor-not-allowed rounded-2xl border border-[var(--tablor-border)] bg-[var(--tablor-card)] p-4 sm:p-5 opacity-60"
     >
       {cardBody}
     </div>

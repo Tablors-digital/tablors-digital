@@ -15,7 +15,7 @@ export default async function AdminPage() {
   const devices = await getDevicesDb(DEMO_RESTAURANT_ID);
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-0)] px-6 py-8">
+    <div className="min-h-screen bg-[var(--color-surface-0)] px-4 sm:px-6 py-4 sm:py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl text-[var(--color-text-primary)]">Company admin</h1>
         <form action={demoLogout}>
@@ -25,7 +25,7 @@ export default async function AdminPage() {
         </form>
       </div>
 
-      <section className="mt-8">
+      <section className="mt-5 sm:mt-8">
         <h2 className="text-sm text-[var(--color-text-muted)]">
           Demo requests ({leads.length})
         </h2>
@@ -74,7 +74,7 @@ export default async function AdminPage() {
         </div>
       </section>
 
-      <section className="mt-10">
+      <section className="mt-6 sm:mt-10">
         <h2 className="text-sm text-[var(--color-text-muted)]">Device registry</h2>
         <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {devices.map((device) => (

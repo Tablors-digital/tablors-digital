@@ -10,6 +10,7 @@ import {
   Grid,
   LayoutDashboard,
   LifeBuoy,
+  Package,
   Settings,
   Star,
   Tag,
@@ -67,6 +68,11 @@ const navItems: NavItem[] = [
     icon: Tag,
   },
   {
+    href: "/owner/inventory",
+    label: "Inventory",
+    icon: Package,
+  },
+  {
     href: "/owner/staff",
     label: "Staff",
     icon: Users,
@@ -110,7 +116,7 @@ export function OwnerSidebarNav({
     : navItems;
 
   return (
-    <nav className="mt-6 flex gap-1 overflow-x-auto pb-2 scrollbar-none md:flex-col md:overflow-x-visible md:pb-0">
+    <nav className="mt-3 flex gap-1 md:mt-6 overflow-x-auto pb-2 scrollbar-none md:flex-col md:overflow-x-visible md:pb-0">
       {visibleItems.map((item) => {
         const Icon = item.icon;
 

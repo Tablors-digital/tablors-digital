@@ -65,7 +65,7 @@ export default async function LoyaltyPage({
   const rupeesPerPoint = await getRupeesPerPoint(rid);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       <LiveRefresh intervalMs={10000} />
       <div>
         <h1 className="text-3xl font-medium tracking-tight text-zinc-50">Loyalty</h1>
@@ -193,7 +193,7 @@ export default async function LoyaltyPage({
             <tbody className="divide-y divide-zinc-900">
               {members.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                  <td colSpan={6} className="px-4 py-4 sm:py-8 text-center text-zinc-500">
                     No members yet.
                   </td>
                 </tr>

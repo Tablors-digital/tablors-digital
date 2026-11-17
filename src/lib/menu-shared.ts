@@ -37,6 +37,102 @@ export function formatRupees(amount: number): string {
   return `₹${amount}`;
 }
 
+// ---- Item codes -------------------------------------------------------
+
+export const ITEM_CODE_MIN = 1;
+export const ITEM_CODE_MAX = 999;
+
+export function formatItemCode(n: number): string {
+  return String(n).padStart(3, "0");
+}
+
+/**
+ * Suggests the next free item code (001–999) for a new item.
+ *
+ * New items continue after the highest code in use, so the menu grows in a
+ * predictable order. Only once 999 is taken does it fall back to the lowest
+ * gap (codes of deleted items are free to reuse). Returns null when all 999
+ * codes are in use.
+ *
+ * This is a convenience for the form only: the server still validates
+ * uniqueness on every write, so a stale suggestion can never create a clash.
+ */
+export function suggestNextItemCode(existingCodes: readonly string[]): string | null {
+  const used = new Set<number>();
+  let highest = 0;
+  for (const code of existingCodes) {
+    if (!ITEM_CODE_PATTERN.test(code)) continue;
+    const n = Number(code);
+    if (n < ITEM_CODE_MIN || n > ITEM_CODE_MAX) continue;
+    used.add(n);
+    if (n > highest) highest = n;
+  }
+  if (highest < ITEM_CODE_MAX) return formatItemCode(highest + 1);
+  for (let n = ITEM_CODE_MIN; n <= ITEM_CODE_MAX; n++) {
+    if (!used.has(n)) return formatItemCode(n);
+  }
+  return null;
+}
+
+/** "Pepper Chicken" → "Pepper Chicken (Copy)", never longer than NAME_MAX. */
+export function duplicateItemName(name: string): string {
+  const suffix = " (Copy)";
+  const base = name.trim().replace(/\s+/g, " ");
+  const room = NAME_MAX - suffix.length;
+  return (base.length > room ? base.slice(0, room).trimEnd() : base) + suffix;
+}
+
+// ---- Dashboard stats --------------------------------------------------
+
+export type CategoryStat = {
+  name: string;
+  count: number;
+  available: number;
+  /** First item photo in the category, used as the category card image. */
+  cover: string | null;
+};
+
+export type MenuStats = {
+  total: number;
+  available: number;
+  unavailable: number;
+  specials: number;
+  /** In order of first appearance, matching the order guests see on devices. */
+  categories: CategoryStat[];
+};
+
+type StatsItem = {
+  category: string;
+  available: boolean;
+  isSpecial: boolean;
+  imageUrl: string | null;
+};
+
+export function computeMenuStats(items: readonly StatsItem[]): MenuStats {
+  const byCategory = new Map<string, CategoryStat>();
+  let available = 0;
+  let specials = 0;
+  for (const item of items) {
+    if (item.available) available += 1;
+    if (item.isSpecial) specials += 1;
+    let stat = byCategory.get(item.category);
+    if (!stat) {
+      stat = { name: item.category, count: 0, available: 0, cover: null };
+      byCategory.set(item.category, stat);
+    }
+    stat.count += 1;
+    if (item.available) stat.available += 1;
+    if (!stat.cover && item.imageUrl) stat.cover = item.imageUrl;
+  }
+  return {
+    total: items.length,
+    available,
+    unavailable: items.length - available,
+    specials,
+    categories: Array.from(byCategory.values()),
+  };
+}
+
 // ---- Validation -------------------------------------------------------
 
 export type MenuFormField =

@@ -1,271 +1,132 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 
-import { requirePermission } from "@/server/modules/auth/session";
+import { DEMO_RESTAURANT_ID, requirePermission } from "@/server/modules/auth/session";
+import { getMenuDb } from "@/server/modules/data/menu-db";
+import { notify } from "@/server/modules/notifications/store";
 import {
   createOffer,
   deleteOffer,
+  getOfferById,
+  getOffers,
   setOfferActive,
   updateOffer,
-  type OfferType,
-  type OfferTargetType,
 } from "@/server/modules/offers/store";
-import { getMenuDb, getMenuItemByIdDb } from "@/server/modules/data/menu-db";
-import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
-import { notify } from "@/server/modules/notifications/store";
+import { getEffectivePrice } from "@/lib/menu-shared";
+import {
+  OFFER_NAME_MAX,
+  getOfferStatus,
+  normaliseOfferDraft,
+  validateOfferDraft,
+  type OfferDraft,
+  type OfferTargetType,
+  type OfferType,
+} from "@/lib/offers-shared";
 
-const OfferSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, "Offer name must contain at least 2 characters.")
-    .max(80, "Offer name is too long."),
+export type OfferActionResult = {
+  ok: boolean;
+  message: string;
+  offerId?: string;
+};
 
-  description: z
-    .string()
-    .trim()
-    .max(240, "Description is too long."),
+// ---- form parsing -------------------------------------------------------
 
-  type: z.enum([
-    "fixed_price",
-    "percentage",
-    "buy_x_get_y",
-  ]),
-
-  targetType: z.enum([
-    "item",
-    "category",
-    "order",
-  ]),
-
-  targetItemId: z.string().nullable(),
-  targetCategory: z.string().nullable(),
-
-  fixedPriceRupees: z.number().int().nonnegative().nullable(),
-
-  percentagePercent: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .nullable(),
-
-  buyQuantity: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .nullable(),
-
-  freeQuantity: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .nullable(),
-
-  minimumOrderRupees: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable(),
-
-  startsAt: z.number().int().positive(),
-  endsAt: z.number().int().positive(),
-
-  active: z.boolean(),
-});
-
-function parseNullableNumber(
-  value: FormDataEntryValue | null
-): number | null {
-  if (value === null) {
-    return null;
-  }
-
+function parseNullableNumber(value: FormDataEntryValue | null): number | null {
+  if (value === null) return null;
   const text = String(value).trim();
-
-  if (!text) {
-    return null;
-  }
-
+  if (!text) return null;
   const number = Number(text);
-
   return Number.isFinite(number) ? number : null;
 }
 
-function parseBoolean(
-  value: FormDataEntryValue | null
-): boolean {
-  return String(value) === "true";
+/** Accepts epoch milliseconds (what the owner form sends) or a date string. */
+function parseTimestamp(value: FormDataEntryValue | null): number {
+  if (value === null) return Number.NaN;
+  const text = String(value).trim();
+  if (!text) return Number.NaN;
+  if (/^\d{10,}$/.test(text)) return Number(text);
+  return Date.parse(text);
 }
 
-function parseFormData(formData: FormData) {
+function parseFormData(formData: FormData): OfferDraft {
   return {
     name: String(formData.get("name") ?? ""),
     description: String(formData.get("description") ?? ""),
-
     type: String(formData.get("type") ?? "") as OfferType,
-
-    targetType: String(
-      formData.get("targetType") ?? ""
-    ) as OfferTargetType,
-
-    targetItemId:
-      String(formData.get("targetItemId") ?? "").trim() || null,
-
-    targetCategory:
-      String(formData.get("targetCategory") ?? "").trim() || null,
-
-    fixedPriceRupees: parseNullableNumber(
-      formData.get("fixedPriceRupees")
-    ),
-
-    percentagePercent: parseNullableNumber(
-      formData.get("percentagePercent")
-    ),
-
-    buyQuantity: parseNullableNumber(
-      formData.get("buyQuantity")
-    ),
-
-    freeQuantity: parseNullableNumber(
-      formData.get("freeQuantity")
-    ),
-
-    minimumOrderRupees: parseNullableNumber(
-      formData.get("minimumOrderRupees")
-    ),
-
-    startsAt: Number(formData.get("startsAt")),
-    endsAt: Number(formData.get("endsAt")),
-
-    active: parseBoolean(formData.get("active")),
+    targetType: String(formData.get("targetType") ?? "") as OfferTargetType,
+    targetItemId: String(formData.get("targetItemId") ?? "").trim() || null,
+    targetCategory: String(formData.get("targetCategory") ?? "").trim() || null,
+    fixedPriceRupees: parseNullableNumber(formData.get("fixedPriceRupees")),
+    percentagePercent: parseNullableNumber(formData.get("percentagePercent")),
+    fixedDiscountRupees: parseNullableNumber(formData.get("fixedDiscountRupees")),
+    buyQuantity: parseNullableNumber(formData.get("buyQuantity")),
+    freeQuantity: parseNullableNumber(formData.get("freeQuantity")),
+    minimumOrderRupees: parseNullableNumber(formData.get("minimumOrderRupees")),
+    startsAt: parseTimestamp(formData.get("startsAt")),
+    endsAt: parseTimestamp(formData.get("endsAt")),
+    active: String(formData.get("active")) !== "false",
   };
 }
 
-async function validateBusinessRules(input: {
-  type: OfferType;
-  targetType: OfferTargetType;
-  targetItemId: string | null;
-  targetCategory: string | null;
-  fixedPriceRupees: number | null;
-  percentagePercent: number | null;
-  buyQuantity: number | null;
-  freeQuantity: number | null;
-  minimumOrderRupees: number | null;
-  startsAt: number;
-  endsAt: number;
-}) {
-  if (input.endsAt <= input.startsAt) {
-    return "Offer end time must be after the start time.";
-  }
+// ---- validation against the live menu -------------------------------------
 
-  if (input.type === "fixed_price") {
-    if (input.fixedPriceRupees === null) {
-      return "Enter the promotional price.";
-    }
+async function validateAgainstMenu(
+  draft: OfferDraft,
+  requireFutureEnd: boolean,
+): Promise<string | null> {
+  const menu = (await getMenuDb(DEMO_RESTAURANT_ID)).filter((m) => m.archivedAt === null);
 
-    if (input.fixedPriceRupees < 0) {
-      return "Promotional price cannot be negative.";
-    }
-
-    if (input.targetType === "order") {
-      return "Fixed-price offers must target an item or category.";
-    }
-  }
-
-  if (input.type === "percentage") {
-    if (input.percentagePercent === null) {
-      return "Enter a percentage.";
-    }
-
-    if (input.percentagePercent < 1) {
-      return "Percentage must be at least 1%.";
-    }
-  }
-
-  if (input.type === "buy_x_get_y") {
-    if (
-      input.buyQuantity === null ||
-      input.freeQuantity === null
-    ) {
-      return "Enter both Buy and Get quantities.";
-    }
-
-    if (input.targetType === "order") {
-      return "Buy X Get Y must target an item or category.";
-    }
-  }
-
-  if (input.targetType === "item") {
-    if (!input.targetItemId) {
-      return "Select a menu item.";
-    }
-
-    const item = await getMenuItemByIdDb(DEMO_RESTAURANT_ID, input.targetItemId);
-
-    if (!item) {
-      return "Selected menu item was not found.";
-    }
-  }
-
-  if (input.targetType === "category") {
-    if (!input.targetCategory) {
-      return "Select a category.";
-    }
-
-    const categoryExists = (await getMenuDb(DEMO_RESTAURANT_ID)).some(
-      (item) => item.category === input.targetCategory
-    );
-
-    if (!categoryExists) {
-      return "Selected category was not found.";
-    }
-  }
-
-  if (input.targetType === "order") {
-    if (
-      input.minimumOrderRupees === null ||
-      input.minimumOrderRupees < 0
-    ) {
-      return "Enter a valid minimum order value.";
-    }
-  }
-
-  return null;
+  return validateOfferDraft(draft, {
+    now: Date.now(),
+    requireFutureEnd,
+    itemPriceRupees: (id) => {
+      const item = menu.find((m) => m.id === id);
+      return item ? getEffectivePrice(item) : null;
+    },
+    categoryMinPriceRupees: (category) => {
+      const prices = menu
+        .filter((m) => m.category === category)
+        .map((m) => getEffectivePrice(m));
+      return prices.length > 0 ? Math.min(...prices) : null;
+    },
+  });
 }
 
+/** Same name (ignoring case/spacing) as another offer that has not expired. */
+async function nameClash(name: string, exceptId: string | null): Promise<boolean> {
+  const wanted = name.trim().replace(/\s+/g, " ").toLowerCase();
+  const now = Date.now();
+  return (await getOffers()).some(
+    (o) =>
+      o.id !== exceptId &&
+      o.name.trim().replace(/\s+/g, " ").toLowerCase() === wanted &&
+      getOfferStatus(o, now) !== "expired",
+  );
+}
+
+function revalidateOfferSurfaces(): void {
+  revalidatePath("/owner/offers");
+  revalidatePath("/customer", "layout");
+}
+
+// ---- create ---------------------------------------------------------------
+
 export async function createOfferAction(
-  formData: FormData
-): Promise<{ ok: boolean; message: string }> {
+  formData: FormData,
+): Promise<OfferActionResult> {
   await requirePermission("offers");
 
-  const raw = parseFormData(formData);
+  const draft = normaliseOfferDraft(parseFormData(formData));
 
-  const parsed = OfferSchema.safeParse(raw);
+  const problem = await validateAgainstMenu(draft, true);
+  if (problem) return { ok: false, message: problem };
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message:
-        parsed.error.issues[0]?.message ??
-        "Invalid offer details.",
-    };
+  if (await nameClash(draft.name, null)) {
+    return { ok: false, message: "An offer with this name already exists. Choose a different name or edit that offer." };
   }
 
-  const businessError = await validateBusinessRules(parsed.data);
-
-  if (businessError) {
-    return {
-      ok: false,
-      message: businessError,
-    };
-  }
-
-  const created = await createOffer(parsed.data);
+  const created = await createOffer(draft);
 
   try {
     // dedupeKey = offer id, so one offer can never raise two notifications.
@@ -279,102 +140,141 @@ export async function createOfferAction(
     console.error("Offer notification failed", created.id, error);
   }
 
-  revalidatePath("/owner/offers");
+  revalidateOfferSurfaces();
 
-  return {
-    ok: true,
-    message: "Offer created successfully.",
-  };
+  return { ok: true, message: "Offer created successfully.", offerId: created.id };
 }
+
+// ---- update ---------------------------------------------------------------
 
 export async function updateOfferAction(
   id: string,
-  formData: FormData
-): Promise<{ ok: boolean; message: string }> {
+  formData: FormData,
+): Promise<OfferActionResult> {
   await requirePermission("offers");
 
-  const raw = parseFormData(formData);
+  const existing = await getOfferById(id);
+  if (!existing) return { ok: false, message: "Offer not found." };
 
-  const parsed = OfferSchema.safeParse(raw);
+  const draft = normaliseOfferDraft(parseFormData(formData));
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message:
-        parsed.error.issues[0]?.message ??
-        "Invalid offer details.",
-    };
+  // Only demand a future end time when the dates were actually changed, so a
+  // typo fix on an expired offer is still possible.
+  const datesChanged =
+    draft.startsAt !== existing.startsAt || draft.endsAt !== existing.endsAt;
+
+  const problem = await validateAgainstMenu(draft, datesChanged);
+  if (problem) return { ok: false, message: problem };
+
+  if (await nameClash(draft.name, id)) {
+    return { ok: false, message: "Another offer already uses this name." };
   }
 
-  const businessError = await validateBusinessRules(parsed.data);
+  const updated = await updateOffer(id, draft);
+  if (!updated) return { ok: false, message: "Offer not found." };
 
-  if (businessError) {
-    return {
-      ok: false,
-      message: businessError,
-    };
-  }
+  revalidateOfferSurfaces();
 
-  const updated = await updateOffer(id, parsed.data);
-
-  if (!updated) {
-    return {
-      ok: false,
-      message: "Offer not found.",
-    };
-  }
-
-  revalidatePath("/owner/offers");
-
-  return {
-    ok: true,
-    message: "Offer updated successfully.",
-  };
+  return { ok: true, message: "Offer updated successfully.", offerId: id };
 }
 
-export async function deleteOfferAction(
-  id: string
-): Promise<{ ok: boolean; message: string }> {
+// ---- delete ---------------------------------------------------------------
+
+export async function deleteOfferAction(id: string): Promise<OfferActionResult> {
   await requirePermission("offers");
 
   const deleted = await deleteOffer(id);
+  if (!deleted) return { ok: false, message: "Offer not found." };
 
-  if (!deleted) {
-    return {
-      ok: false,
-      message: "Offer not found.",
-    };
-  }
+  revalidateOfferSurfaces();
 
-  revalidatePath("/owner/offers");
-
-  return {
-    ok: true,
-    message: "Offer deleted.",
-  };
+  return { ok: true, message: "Offer deleted." };
 }
+
+// ---- activate / deactivate --------------------------------------------------
 
 export async function toggleOfferAction(
   id: string,
-  active: boolean
-): Promise<{ ok: boolean; message: string }> {
+  active: boolean,
+): Promise<OfferActionResult> {
   await requirePermission("offers");
 
-  const offer = await setOfferActive(id, active);
+  const existing = await getOfferById(id);
+  if (!existing) return { ok: false, message: "Offer not found." };
 
-  if (!offer) {
+  if (active && existing.endsAt <= Date.now()) {
     return {
       ok: false,
-      message: "Offer not found.",
+      message: "This offer has expired. Edit its end date to run it again.",
     };
   }
 
-  revalidatePath("/owner/offers");
+  const offer = await setOfferActive(id, active);
+  if (!offer) return { ok: false, message: "Offer not found." };
+
+  revalidateOfferSurfaces();
 
   return {
     ok: true,
-    message: active
-      ? "Offer activated."
-      : "Offer paused.",
+    message: active ? "Offer activated." : "Offer paused.",
+    offerId: id,
+  };
+}
+
+// ---- duplicate --------------------------------------------------------------
+
+function copyName(base: string, taken: Set<string>): string {
+  const clean = base.trim().replace(/\s+/g, " ");
+  const stem = clean.replace(/ \(Copy(?: \d+)?\)$/, "");
+  for (let n = 1; n < 1000; n += 1) {
+    const suffix = n === 1 ? " (Copy)" : ` (Copy ${n})`;
+    const candidate = `${stem.slice(0, Math.max(1, OFFER_NAME_MAX - suffix.length))}${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${stem.slice(0, OFFER_NAME_MAX - 8)} (Copy)`;
+}
+
+/**
+ * Copies an offer as a paused draft with a unique name. A copy of an offer
+ * that is expired starts now and keeps the original length, so it is ready
+ * to edit and switch on.
+ */
+export async function duplicateOfferAction(id: string): Promise<OfferActionResult> {
+  await requirePermission("offers");
+
+  const source = await getOfferById(id);
+  if (!source) return { ok: false, message: "Offer not found." };
+
+  const all = await getOffers();
+  const taken = new Set(all.map((o) => o.name.trim().replace(/\s+/g, " ").toLowerCase()));
+
+  const now = Date.now();
+  const length = Math.max(60 * 60 * 1000, source.endsAt - source.startsAt);
+  const keepDates = source.endsAt > now;
+
+  const created = await createOffer({
+    name: copyName(source.name, taken),
+    description: source.description,
+    type: source.type,
+    fixedPriceRupees: source.fixedPriceRupees,
+    percentagePercent: source.percentagePercent,
+    fixedDiscountRupees: source.fixedDiscountRupees,
+    buyQuantity: source.buyQuantity,
+    freeQuantity: source.freeQuantity,
+    targetType: source.targetType,
+    targetItemId: source.targetItemId,
+    targetCategory: source.targetCategory,
+    minimumOrderRupees: source.minimumOrderRupees,
+    startsAt: keepDates ? source.startsAt : now,
+    endsAt: keepDates ? source.endsAt : now + length,
+    active: false,
+  });
+
+  revalidateOfferSurfaces();
+
+  return {
+    ok: true,
+    message: `Offer duplicated as "${created.name}". It is paused — edit it and activate when ready.`,
+    offerId: created.id,
   };
 }

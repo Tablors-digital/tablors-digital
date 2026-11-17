@@ -1,83 +1,146 @@
-import { Star } from "lucide-react";
-import { requirePermission } from "@/server/modules/auth/session";
-import { getFeedbackInsights } from "@/server/modules/feedback/insights";
+import { MessageSquareText } from "lucide-react";
 
-const fmt = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
-const card = "rounded-xl border border-zinc-800 bg-zinc-950 p-5";
+import "@/components/feedback/feedback.css";
+import "@/components/reports/reports.css";
+import { FeedbackControls, type FeedbackPeriodOption } from "@/components/feedback/feedback-controls";
+import { FeedbackView, type FeedbackRow } from "@/components/feedback/feedback-view";
+import { DEMO_RESTAURANT_ID, requirePermission } from "@/server/modules/auth/session";
+import { getTablesDb } from "@/server/modules/data/tables-db";
+import { FEEDBACK_LANGUAGE_NAMES } from "@/server/modules/feedback/i18n";
+import {
+  FEEDBACK_PERIODS,
+  FEEDBACK_PERIOD_LABELS,
+  buildFeedbackReport,
+  getFeedbackRange,
+  overallRating,
+  parseFeedbackFilter,
+} from "@/server/modules/feedback/report";
+import { listFeedback } from "@/server/modules/feedback/store";
 
-function Stars({ n }: { n: number }) {
-  return (
-    <span className="inline-flex" aria-label={`${n} out of 5`}>
-      {[1, 2, 3, 4, 5].map((i) => (
-        <Star key={i} className={`h-3.5 w-3.5 ${i <= Math.round(n) ? "fill-[#d7fe3b] text-[#d7fe3b]" : "text-zinc-700"}`} />
-      ))}
-    </span>
-  );
-}
+export const dynamic = "force-dynamic";
 
-export default async function FeedbackPage() {
+const IST = "Asia/Kolkata";
+
+const normalizeFeedbackLanguage = (value: string | null | undefined) => {
+  const raw = (value ?? "en").trim();
+  const code = raw.toLowerCase().replaceAll("_", "-");
+  if (["en", "eng", "english", "en-in", "en-us", "en-gb"].includes(code) || code.startsWith("en-")) return "en";
+  if (["te", "tel", "telugu", "తెలుగు", "te-in"].includes(code) || code.startsWith("te-")) return "te";
+  if (["hi", "hin", "hindi", "हिन्दी", "हिंदी", "hi-in"].includes(code) || code.startsWith("hi-")) return "hi";
+  return raw;
+};
+
+const FEEDBACK_LANGUAGE_LABELS: Record<string, string> = {
+  en: "English",
+  te: "Telugu",
+  hi: "Hindi",
+};
+
+const currentTimestamp = () => Date.now();
+
+const dmy = (ms: number) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: IST, day: "2-digit", month: "2-digit", year: "numeric" })
+    .format(ms)
+    .replaceAll("/", "-");
+
+const iso = (ms: number) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: IST, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+
+const dateTime = new Intl.DateTimeFormat("en-IN", { timeZone: IST, dateStyle: "medium", timeStyle: "short" });
+
+export default async function FeedbackPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string | string[]; date?: string | string[] }>;
+}) {
   await requirePermission("feedback");
-  const d = await getFeedbackInsights();
+
+  const params = await searchParams;
+  const filter = parseFeedbackFilter(params);
+  const now = currentTimestamp();
+
+  const [all, tables] = await Promise.all([listFeedback(), getTablesDb(DEMO_RESTAURANT_ID)]);
+  const range = getFeedbackRange(filter, now);
+  const report = buildFeedbackReport(all, range);
+  const tableLabels = new Map(tables.map((t) => [t.id, t.label]));
+
+  const options: FeedbackPeriodOption[] = FEEDBACK_PERIODS.map((p) => {
+    const r = getFeedbackRange({ kind: "period", period: p }, now);
+    const dates = !r ? "Every review" : p === "today" || p === "yesterday" ? dmy(r.start) : `${dmy(r.start)} – ${dmy(r.end)}`;
+    return { value: p, label: FEEDBACK_PERIOD_LABELS[p], dates };
+  });
+
+  const current = filter.kind === "period" ? filter.period : "";
+  const periodLabel =
+    filter.kind === "date" ? dmy(range!.start) : FEEDBACK_PERIOD_LABELS[filter.period];
+  const summary =
+    filter.kind === "date"
+      ? `Date • ${dmy(range!.start)}`
+      : `${FEEDBACK_PERIOD_LABELS[filter.period]} • ${options.find((o) => o.value === filter.period)!.dates}`;
+
+  const rows: FeedbackRow[] = report.feedback.map((f) => {
+    const rawLanguage = f.language ?? "en";
+    const language = normalizeFeedbackLanguage(rawLanguage);
+    return {
+      id: f.id,
+      orderId: f.orderId,
+      tableLabel: tableLabels.get(f.tableId) ?? `Table ${f.tableId}`,
+      submittedAt: f.submittedAt,
+      dateText: dateTime.format(new Date(f.submittedAt)),
+      language,
+      languageName:
+        FEEDBACK_LANGUAGE_LABELS[language] ??
+        FEEDBACK_LANGUAGE_NAMES[rawLanguage as keyof typeof FEEDBACK_LANGUAGE_NAMES] ??
+        FEEDBACK_LANGUAGE_NAMES[language as keyof typeof FEEDBACK_LANGUAGE_NAMES] ??
+        rawLanguage,
+      food: f.foodRating,
+      service: f.serviceRating,
+      ordering: f.orderingRating,
+      overall: overallRating(f),
+      comment: f.comment,
+      device: f.deviceRatings
+        ? {
+            overall: f.deviceRatings.overall,
+            foodTaste: f.deviceRatings.foodTaste,
+            deviceUsability: f.deviceRatings.deviceUsability,
+            items: f.deviceRatings.items.map((i) => ({ name: i.name, rating: i.rating })),
+          }
+        : null,
+    };
+  });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-50">Customer Feedback</h1>
-        <p className="mt-1 text-sm text-zinc-400">{d.total} review{d.total === 1 ? "" : "s"} from paid orders.</p>
+    <div className="rp">
+      <div className="rp-head fb-head">
+        <div className="rp-title">
+          <MessageSquareText aria-hidden strokeWidth={1.75} />
+          <div>
+            <h1>Customer Feedback</h1>
+            <p>What guests say about your food, service and ordering experience.</p>
+          </div>
+        </div>
+        <FeedbackControls
+          options={options}
+          current={current}
+          customDate={filter.kind === "date" ? filter.date : null}
+          maxDate={iso(now)}
+          summary={summary}
+        />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className={card}>
-          <p className="text-xs text-zinc-500">Average rating</p>
-          <p className="mt-2 text-2xl font-semibold text-zinc-50">{d.total ? d.averageRating.toFixed(1) : "—"}<span className="text-sm text-zinc-500"> / 5</span></p>
-          {d.total > 0 && <div className="mt-1"><Stars n={d.averageRating} /></div>}
-        </div>
-        <div className={card}>
-          <p className="text-xs text-zinc-500">Complaints (any rating ≤ 2★)</p>
-          <p className="mt-2 text-2xl font-semibold text-zinc-50">{d.complaints.length}</p>
-        </div>
-        <div className={`${card} sm:col-span-2`}>
-          <p className="text-xs text-zinc-500">Most common problem</p>
-          <p className="mt-2 text-lg font-semibold text-zinc-50">
-            {d.mostCommonProblem ? `${d.mostCommonProblem.name} (${d.mostCommonProblem.count} low rating${d.mostCommonProblem.count === 1 ? "" : "s"})` : "No problems reported"}
-          </p>
-        </div>
-      </div>
-
-      <div className={card}>
-        <h2 className="text-sm font-semibold text-zinc-100">By category</h2>
-        <div className="mt-3 space-y-3">
-          {d.categories.map((c) => (
-            <div key={c.name} className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-zinc-300">{c.name}</span>
-              <span className="flex items-center gap-3">
-                <Stars n={c.average} />
-                <span className="w-8 text-right text-zinc-100">{d.total ? c.average.toFixed(1) : "—"}</span>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
-        <h2 className="px-4 pt-4 text-sm font-semibold text-zinc-100">Recent feedback</h2>
-        <div className="divide-y divide-zinc-900">
-          {d.recent.length === 0 && <p className="px-4 py-10 text-center text-sm text-zinc-500">No feedback yet.</p>}
-          {d.recent.map((f) => (
-            <div key={f.id} className="space-y-1 p-4 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                <span>Table {f.tableId} · {fmt.format(new Date(f.submittedAt))}</span>
-                <span className="flex gap-3">
-                  <span>Food <Stars n={f.foodRating} /></span>
-                  <span>Service <Stars n={f.serviceRating} /></span>
-                  <span>Ordering <Stars n={f.orderingRating} /></span>
-                </span>
-              </div>
-              {f.comment && <p className="text-zinc-200">{f.comment}</p>}
-            </div>
-          ))}
-        </div>
-      </div>
+      <FeedbackView
+        key={filter.kind === "date" ? filter.date : filter.period}
+        data={{
+          total: report.total,
+          averageRating: report.averageRating,
+          categories: report.categories,
+          mostCommonProblem: report.mostCommonProblem,
+          complaintCount: report.complaintCount,
+          distribution: report.distribution,
+          rows,
+          periodLabel,
+        }}
+      />
     </div>
   );
 }

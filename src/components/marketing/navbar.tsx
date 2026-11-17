@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CtaButton } from "./motion/cta-button";
 
-// Section links resolve to "#id" on the homepage and "/#id" everywhere else,
-// so the same items work from any marketing page.
 const sectionLinks = [
   { hash: "#hero", label: "Product" },
   { hash: "#device", label: "The device" },
@@ -20,9 +18,9 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
+  const isHome = pathname === "/";
 
-  const sectionHref = (hash: string) =>
-    pathname === "/" ? hash : `/${hash}`;
+  const sectionHref = (hash: string) => (isHome ? hash : `/${hash}`);
 
   const navLinks = [
     ...sectionLinks.map((link) => ({
@@ -81,21 +79,29 @@ export function Navbar() {
 
         {/* Desktop Navigation */}
         <ul className="hidden items-center gap-6 text-sm text-[var(--mkt-text-secondary)] md:flex">
-          {navLinks.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                className="transition-colors hover:text-[var(--mkt-text-primary)]"
-              >
-                {link.label}
-              </Link>
+          {navLinks.map((item) => (
+            <li key={item.href}>
+              {isHome ? (
+                <a
+                  href={item.href}
+                  className="transition-colors hover:text-[var(--mkt-text-primary)]"
+                >
+                  {item.label}
+                </a>
+              ) : (
+                <Link
+                  href={item.href}
+                  className="transition-colors hover:text-[var(--mkt-text-primary)]"
+                >
+                  {item.label}
+                </Link>
+              )}
             </li>
           ))}
         </ul>
 
         {/* Right Actions */}
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
-          {/* Login */}
           <Link
             href="/login"
             className="hidden text-sm text-[var(--mkt-text-secondary)] transition-colors hover:text-[var(--mkt-text-primary)] sm:inline"
@@ -103,15 +109,22 @@ export function Navbar() {
             Login
           </Link>
 
-          {/* Book Demo */}
-          <Link
-            href={demoHref}
-            className="hidden rounded-full border border-[var(--mkt-border-strong)] px-4 py-2 text-sm text-[var(--mkt-text-primary)] transition-colors hover:border-[var(--mkt-lime)] sm:inline-block"
-          >
-            Book Demo
-          </Link>
+          {isHome ? (
+            <a
+              href={demoHref}
+              className="hidden rounded-full border border-[var(--mkt-border-strong)] px-4 py-2 text-sm text-[var(--mkt-text-primary)] transition-colors hover:border-[var(--mkt-lime)] sm:inline-block"
+            >
+              Book Demo
+            </a>
+          ) : (
+            <Link
+              href={demoHref}
+              className="hidden rounded-full border border-[var(--mkt-border-strong)] px-4 py-2 text-sm text-[var(--mkt-text-primary)] transition-colors hover:border-[var(--mkt-lime)] sm:inline-block"
+            >
+              Book Demo
+            </Link>
+          )}
 
-          {/* Get Started */}
           <CtaButton
             href="/order"
             glow="lime"
@@ -134,13 +147,7 @@ export function Navbar() {
             </span>
 
             {menuOpen ? (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path
                   d="M2 2L14 14M14 2L2 14"
                   stroke="currentColor"
@@ -149,13 +156,7 @@ export function Navbar() {
                 />
               </svg>
             ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path
                   d="M2 4H14M2 8H14M2 12H14"
                   stroke="currentColor"
@@ -174,19 +175,28 @@ export function Navbar() {
           id="mobile-nav"
           className="absolute inset-x-0 top-full flex max-h-[calc(100vh-4.25rem)] flex-col gap-1 overflow-y-auto border-t border-[var(--mkt-border)] bg-[var(--mkt-bg)] px-6 py-4 text-sm text-[var(--mkt-text-secondary)] md:hidden"
         >
-          {navLinks.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
-              >
-                {link.label}
-              </Link>
+          {navLinks.map((item) => (
+            <li key={item.href}>
+              {isHome ? (
+                <a
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
+                >
+                  {item.label}
+                </a>
+              ) : (
+                <Link
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
+                >
+                  {item.label}
+                </Link>
+              )}
             </li>
           ))}
 
-          {/* Mobile Login */}
           <li>
             <Link
               href="/login"
@@ -197,18 +207,26 @@ export function Navbar() {
             </Link>
           </li>
 
-          {/* Mobile Book Demo */}
           <li>
-            <Link
-              href={demoHref}
-              onClick={() => setMenuOpen(false)}
-              className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
-            >
-              Book Demo
-            </Link>
+            {isHome ? (
+              <a
+                href={demoHref}
+                onClick={() => setMenuOpen(false)}
+                className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
+              >
+                Book Demo
+              </a>
+            ) : (
+              <Link
+                href={demoHref}
+                onClick={() => setMenuOpen(false)}
+                className="block py-2 transition-colors hover:text-[var(--mkt-text-primary)]"
+              >
+                Book Demo
+              </Link>
+            )}
           </li>
 
-          {/* Mobile Get Started */}
           <li>
             <Link
               href="/order"

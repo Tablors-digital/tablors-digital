@@ -19,7 +19,7 @@ export default async function CustomerLayout({ children }: { children: ReactNode
 
   return (
     <div className="tablor-customer min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-[var(--tablor-border)] bg-[var(--tablor-bg)]/95 backdrop-blur px-4 py-4 sm:px-6">
+      <header className="sticky top-0 z-10 border-b border-[var(--tablor-border)] bg-[var(--tablor-bg)]/95 backdrop-blur px-3 py-2.5 sm:px-6 sm:py-4">
         <div className="flex items-center gap-3">
           {settings.logoDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -31,7 +31,7 @@ export default async function CustomerLayout({ children }: { children: ReactNode
         </div>
       </header>
 
-      <main className="px-4 py-5 sm:px-6 sm:py-8">{children}</main>
+      <main className="px-2 py-3 sm:px-6 sm:py-8">{children}</main>
     </div>
   );
 }
