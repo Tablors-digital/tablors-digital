@@ -1,16 +1,21 @@
-
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 
+import { db, withTenantDb } from "@/server/db/client";
+import { restaurantTables } from "@/server/db/schema";
 import {
-  getDemoRole,
+  getDemoSession,
   DEMO_RESTAURANT_ID,
 } from "@/server/modules/auth/session";
 
 import type { OrderStatus } from "@/server/modules/demo-store/store";
-import { notifyOrderCancelled, notifyOrderPlaced, notifyWaiterCall } from "@/server/modules/notifications/events";
+import {
+  notifyOrderCancelled,
+  notifyOrderPlaced,
+  notifyWaiterCall,
+} from "@/server/modules/notifications/events";
 import { acknowledgeWaiterDb, requestWaiterDb } from "./waiter";
 
 import { formatOrderNo } from "@/lib/order-number";
@@ -70,22 +75,37 @@ function revalidateOrderSurfaces(): void {
   revalidatePath("/owner/billing");
   revalidatePath("/owner");
   revalidatePath("/kitchen");
+  revalidatePath("/owner/notifications");
 }
 
-/**
- * Moves an order one step through the kitchen flow
- * (new → preparing → ready → served). It can never reach "billed":
- * billing is a separate operation.
- *
- * Staff-only. The role check lives here on the server.
- * expectedStatus is the status the caller saw on screen. If the order
- * has changed since, nothing changes and a stale failure is returned.
- */
+async function resolveRestaurantId(tableId?: string): Promise<string> {
+  const session = await getDemoSession();
+  if (session?.restaurantId) {
+    return session.restaurantId;
+  }
+  if (tableId && tableId.trim() !== "") {
+    try {
+      const [row] = await db
+        .select({ restaurantId: restaurantTables.restaurantId })
+        .from(restaurantTables)
+        .where(eq(restaurantTables.id, tableId.trim()))
+        .limit(1);
+      if (row?.restaurantId) {
+        return row.restaurantId;
+      }
+    } catch (err) {
+      console.error("resolveRestaurantId table lookup failed", err);
+    }
+  }
+  return DEMO_RESTAURANT_ID;
+}
+
 export async function advanceOrder(
   orderId: string,
   expectedStatus?: OrderStatus,
 ): Promise<AdvanceOrderResult> {
-  const role = await getDemoRole();
+  const session = await getDemoSession();
+  const role = session?.role ?? null;
 
   if (role === null || !STAFF_ROLES.includes(role)) {
     return fail("forbidden");
@@ -99,17 +119,15 @@ export async function advanceOrder(
     return fail("invalid");
   }
 
+  const restaurantId = session?.restaurantId ?? DEMO_RESTAURANT_ID;
   let result;
 
   try {
-    result = await transitionOrderInDb(
-      DEMO_RESTAURANT_ID,
-      orderId.trim(),
-      expectedStatus,
+    result = await withTenantDb(restaurantId, async () =>
+      transitionOrderInDb(restaurantId, orderId.trim(), expectedStatus),
     );
   } catch (err) {
     console.error("advanceOrder failed", err);
-
     return {
       ok: false,
       code: "invalid",
@@ -117,83 +135,34 @@ export async function advanceOrder(
     };
   }
 
-  // Revalidate on failures too, so stale screens show the latest state.
   revalidateOrderSurfaces();
 
   if (result.ok) {
     return { ok: true };
   }
 
-  if (result.reason === "not-found") {
-    return fail("missing");
-  }
-
-  if (result.reason === "already-served") {
-    return fail("served");
-  }
-
-  if (result.reason === "already-billed") {
-    return fail("billed");
-  }
-
-  return fail("stale");
+  if (result.reason === "not-found") return fail("missing");
+  if (result.reason === "status-changed") return fail("stale");
+  if (result.reason === "already-served") return fail("served");
+  if (result.reason === "already-billed") return fail("billed");
+  return fail("invalid");
 }
 
-/**
- * Form-action wrapper for the Owner Live Orders page.
- * Redirects back with a notice code when an update fails.
- */
-export async function advanceOrderFromForm(
-  formData: FormData,
-): Promise<void> {
-  const orderId = formData.get("orderId");
-  const expected = formData.get("expectedStatus");
+export async function advanceOrderFromForm(formData: FormData): Promise<void> {
+  const rawOrderId = formData.get("orderId");
+  const rawExpected = formData.get("expectedStatus");
 
-  if (expected !== null && !isOrderStatus(expected)) {
-    redirect("/owner/orders?notice=invalid");
-  }
+  const orderId = typeof rawOrderId === "string" ? rawOrderId : "";
+  const expectedStatus =
+    typeof rawExpected === "string" && isOrderStatus(rawExpected)
+      ? rawExpected
+      : undefined;
 
-  const id = typeof orderId === "string" ? orderId : "";
-  let result = await advanceOrder(id, expected ?? undefined);
-
-  // "Mark Ready" on a new order: new → preparing → ready (both steps are
-  // recorded, so order history and the kitchen flow stay intact).
-  if (result.ok && expected === "new") {
-    result = await advanceOrder(id, "preparing");
-  }
-
-  if (!result.ok) {
-    redirect(`/owner/orders?notice=${result.code}`);
-  }
-}
-
-/** Staff cancels an unpaid order (Live Orders page). Notifies the dashboard. */
-export async function cancelOrderFromForm(formData: FormData): Promise<void> {
-  const role = await getDemoRole();
-  if (role === null || !STAFF_ROLES.includes(role)) {
-    redirect("/owner/orders?notice=forbidden");
-  }
-  const id = String(formData.get("orderId") ?? "").trim();
-  if (!id) redirect("/owner/orders?notice=invalid");
-
-  const result = await cancelOrderInDb(DEMO_RESTAURANT_ID, id, role);
-  if (result.ok) {
-    await notifyOrderCancelled({ tableId: result.tableId, orderId: id });
-  }
-  revalidateOrderSurfaces();
-  redirect(
-    result.ok
-      ? "/owner/orders?notice=cancelled"
-      : `/owner/orders?notice=${result.reason === "has-payment" ? "paid" : "missing"}`,
-  );
+  await advanceOrder(orderId, expectedStatus);
 }
 
 export type PlaceOrderInput = {
   tableId: string;
-  /**
-   * itemId is preferred when available. code remains supported for keypad
-   * and direct requests. Prices are never accepted from the client.
-   */
   lines: { code: string; qty: number; itemId?: string }[];
 };
 
@@ -201,12 +170,17 @@ export type PlaceOrderResult =
   | {
       ok: true;
       orderId: string;
-      /** Human-readable, e.g. ORD-00125. */
       orderNumber: string;
       round: number;
       appended: boolean;
-      /** Every confirmed line on the open order, all rounds, from the database. */
-      lines: { itemId?: string; code: string; name: string; qty: number; priceRupees: number; round: number }[];
+      lines: {
+        itemId?: string;
+        code: string;
+        name: string;
+        qty: number;
+        priceRupees: number;
+        round: number;
+      }[];
     }
   | { ok: false; error: string };
 
@@ -217,32 +191,60 @@ export async function placeCustomerOrder(
     return { ok: false, error: "Your cart is empty." };
   }
 
-  // Table, menu, availability, quantity limits, and prices are validated
-  // against the database inside one transaction.
-  const result = await createOrderInDb({
-    restaurantId: DEMO_RESTAURANT_ID,
-    tableId: input.tableId,
-    lines: input.lines,
-  });
+  if (typeof input.tableId !== "string" || input.tableId.trim() === "") {
+    return { ok: false, error: "Table not found." };
+  }
+
+  const cleanTableId = input.tableId.trim();
+  const restaurantId = await resolveRestaurantId(cleanTableId);
+
+  let result;
+  try {
+    result = await withTenantDb(restaurantId, async () =>
+      createOrderInDb({
+        restaurantId,
+        tableId: cleanTableId,
+        lines: input.lines,
+      }),
+    );
+  } catch (err) {
+    console.error("placeCustomerOrder createOrderInDb failed", err);
+    return {
+      ok: false,
+      error: "Couldn't reach the restaurant. Please try again.",
+    };
+  }
 
   if (!result.ok) {
     return result;
   }
 
-  // Notify only after the database transaction has committed.
-  await notifyOrderPlaced({
-    tableId: input.tableId,
-    orderId: result.orderId,
-    round: result.round,
-    appended: result.appended,
-  });
+  try {
+    await notifyOrderPlaced({
+      tableId: cleanTableId,
+      orderId: result.orderId,
+      round: result.round,
+      appended: result.appended,
+      restaurantId,
+    });
+  } catch (err) {
+    console.error("placeCustomerOrder notifyOrderPlaced failed", err);
+  }
 
-  revalidatePath("/owner/orders");
-  revalidatePath("/owner/tables");
-  revalidatePath("/kitchen");
-  revalidatePath("/owner/notifications");
+  try {
+    revalidateOrderSurfaces();
+  } catch (err) {
+    console.error("placeCustomerOrder revalidate failed", err);
+  }
 
-  const order = await getOrderFromDb(DEMO_RESTAURANT_ID, result.orderId);
+  let order = null;
+  try {
+    order = await withTenantDb(restaurantId, async () =>
+      getOrderFromDb(restaurantId, result.orderId),
+    );
+  } catch (err) {
+    console.error("placeCustomerOrder getOrderFromDb failed", err);
+  }
 
   return {
     ok: true,
@@ -268,48 +270,113 @@ export type CallWaiterResult =
 export async function callWaiter(
   tableId: string,
 ): Promise<CallWaiterResult> {
-  const call = await requestWaiterDb(DEMO_RESTAURANT_ID, tableId);
+  const cleanTableId = (tableId ?? "").trim();
+  const restaurantId = await resolveRestaurantId(cleanTableId);
 
-  if (!call.ok) {
-    return { ok: false, error: "Table not found." };
+  try {
+    const call = await withTenantDb(restaurantId, async () =>
+      requestWaiterDb(restaurantId, cleanTableId),
+    );
+
+    if (!call.ok) {
+      return { ok: false, error: "Table not found." };
+    }
+
+    if (call.created) {
+      await notifyWaiterCall({
+        tableId: cleanTableId,
+        callId: call.callId,
+        restaurantId,
+      });
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.error("callWaiter failed", err);
+    return {
+      ok: false,
+      error: "Couldn't reach staff right now, please try again.",
+    };
   }
-
-  // Only a brand-new call notifies the owner; a repeat press while the
-  // request is still open just keeps ringing (no duplicate popups).
-  if (call.created) {
-    await notifyWaiterCall({ tableId, callId: call.callId });
-  }
-
-  return { ok: true };
 }
 
 export async function acknowledgeWaiter(
   tableId: string,
 ): Promise<void> {
-  const role = await getDemoRole();
+  const session = await getDemoSession();
+  const role = session?.role ?? null;
 
-  // Clearing a waiter call is a staff action.
   if (role === null || !STAFF_ROLES.includes(role)) {
     return;
   }
 
-  await acknowledgeWaiterDb(DEMO_RESTAURANT_ID, tableId, role);
+  const cleanTableId = (tableId ?? "").trim();
+  const restaurantId = await resolveRestaurantId(cleanTableId);
 
-  revalidatePath("/owner/orders");
-  revalidatePath("/owner/tables");
+  await withTenantDb(restaurantId, async () =>
+    acknowledgeWaiterDb(restaurantId, cleanTableId, role),
+  );
+
+  revalidateOrderSurfaces();
 }
 
 export type OrderPaymentStatus = {
   paid: boolean;
 };
 
-/**
- * Reads payment status from the database-backed billing module.
- */
 export async function checkOrderPaymentStatus(
   orderId: string,
 ): Promise<OrderPaymentStatus> {
+  const session = await getDemoSession();
+  const restaurantId = session?.restaurantId ?? DEMO_RESTAURANT_ID;
   return {
-    paid: await isOrderPaidDb(DEMO_RESTAURANT_ID, orderId),
+    paid: await withTenantDb(restaurantId, async () =>
+      isOrderPaidDb(restaurantId, orderId),
+    ),
   };
+}
+
+const CANCEL_ERRORS: Record<
+  "not-found" | "already-cancelled" | "has-payment",
+  string
+> = {
+  "not-found": "Order not found.",
+  "already-cancelled": "Order is already cancelled.",
+  "has-payment": "Cannot cancel an order that already has a payment.",
+};
+
+export async function cancelOrder(
+  orderId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await getDemoSession();
+  const role = session?.role ?? null;
+  if (role === null || !STAFF_ROLES.includes(role)) {
+    return { ok: false, error: "Not authorized to cancel orders." };
+  }
+
+  const restaurantId = session?.restaurantId ?? DEMO_RESTAURANT_ID;
+  const res = await withTenantDb(restaurantId, async () =>
+    cancelOrderInDb(restaurantId, orderId),
+  );
+  if (!res.ok) {
+    return { ok: false, error: CANCEL_ERRORS[res.reason] };
+  }
+
+  if (res.tableId) {
+    await notifyOrderCancelled({
+      tableId: res.tableId,
+      orderId,
+      restaurantId,
+    });
+  }
+
+  revalidateOrderSurfaces();
+  return { ok: true };
+}
+
+export async function cancelOrderFromForm(formData: FormData): Promise<void> {
+  const rawOrderId = formData.get("orderId");
+  const orderId = typeof rawOrderId === "string" ? rawOrderId : "";
+  if (!orderId.trim()) return;
+  await cancelOrder(orderId);
 }
