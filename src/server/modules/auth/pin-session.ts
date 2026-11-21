@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { POTS_PIN_COOKIE } from "./pots-pin";
 import { STAFF_PIN_COOKIE } from "./staff-pin";
 
@@ -20,14 +20,33 @@ export const PIN_COOKIE_BY_SCOPE: Record<PinScope, string> = {
   pots: POTS_PIN_COOKIE,
 };
 
+const globalForPinSecret = globalThis as typeof globalThis & {
+  __tablorsEphemeralPinSecret?: string;
+};
+
 function secret(): string {
-  const s = process.env.PIN_SESSION_SECRET;
-  if (s) return s;
-  if (process.env.NODE_ENV === "production") throw new Error("PIN_SESSION_SECRET is not set");
-  return "dev-only-pin-session-secret";
+  const configured =
+    process.env.PIN_SESSION_SECRET ||
+    process.env.SESSION_SECRET ||
+    process.env.AUTH_SECRET;
+
+  if (configured && configured.trim().length > 0) {
+    return configured.trim();
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return "dev-only-pin-session-secret";
+  }
+
+  if (!globalForPinSecret.__tablorsEphemeralPinSecret) {
+    globalForPinSecret.__tablorsEphemeralPinSecret = randomBytes(32).toString("hex");
+  }
+
+  return globalForPinSecret.__tablorsEphemeralPinSecret;
 }
 
-const sign = (payload: string) => createHmac("sha256", secret()).update(payload).digest("base64url");
+const sign = (payload: string) =>
+  createHmac("sha256", secret()).update(payload).digest("base64url");
 
 /** Signed, scope-bound token with an absolute expiry: `<scope>.<expiresAtMs>.<hmac>`. */
 export function mintPinToken(
@@ -40,9 +59,14 @@ export function mintPinToken(
 }
 
 /** Long-lived token used only right after the PIN is verified. */
-export const mintArmingToken = (scope: PinScope): string => mintPinToken(scope, Date.now(), PIN_ARM_MS);
+export const mintArmingToken = (scope: PinScope): string =>
+  mintPinToken(scope, Date.now(), PIN_ARM_MS);
 
-export function isPinTokenValid(token: string | undefined, scope: PinScope, now = Date.now()): boolean {
+export function isPinTokenValid(
+  token: string | undefined,
+  scope: PinScope,
+  now = Date.now(),
+): boolean {
   if (!token) return false;
   const parts = token.split(".");
   if (parts.length !== 3) return false;
