@@ -78,22 +78,23 @@ export type CustomerOrderState =
     }
   | { ok: false; error: string };
 
-async function buildBillState(bill: Bill): Promise<CustomerBillState> {
+async function buildBillState(bill: Bill, restaurantName?: string): Promise<CustomerBillState> {
+  const [rawSummary, receipt, loyalty, settings, openIntent] = await Promise.all([
+    getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, bill.id),
+    getBillReceiptDb(DEMO_RESTAURANT_ID, bill.id),
+    getBillLoyaltyViewDb(DEMO_RESTAURANT_ID, bill.tableId, bill.id),
+    restaurantName ? Promise.resolve({ name: restaurantName }) : getSettings(DEMO_RESTAURANT_ID),
+    getOpenIntent(bill.id),
+  ]);
+
   const summary =
-    (await getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, bill.id)) ??
+    rawSummary ??
     ({
       totalRupees: bill.totalRupees,
       paidRupees: 0,
       remainingRupees: bill.totalRupees,
       status: "unpaid",
     } as BillPaymentSummary);
-
-  const [receipt, loyalty, settings, openIntent] = await Promise.all([
-    getBillReceiptDb(DEMO_RESTAURANT_ID, bill.id),
-    getBillLoyaltyViewDb(DEMO_RESTAURANT_ID, bill.tableId, bill.id),
-    getSettings(DEMO_RESTAURANT_ID),
-    getOpenIntent(bill.id),
-  ]);
 
   return {
     billId: bill.id,
@@ -113,10 +114,11 @@ async function buildBillState(bill: Bill): Promise<CustomerBillState> {
 }
 
 async function validateCustomerOrder(tableId: string, orderId: string) {
-  const table = await getTableByIdDb(DEMO_RESTAURANT_ID, tableId);
+  const [table, order] = await Promise.all([
+    getTableByIdDb(DEMO_RESTAURANT_ID, tableId),
+    getOrderFromDb(DEMO_RESTAURANT_ID, orderId),
+  ]);
   if (!table) return { ok: false as const, error: "Table not found." };
-
-  const order = await getOrderFromDb(DEMO_RESTAURANT_ID, orderId);
   if (!order || order.tableId !== tableId) {
     return { ok: false as const, error: "Order not found for this table." };
   }
@@ -125,17 +127,17 @@ async function validateCustomerOrder(tableId: string, orderId: string) {
 }
 
 /**
- * Reads the current bill/payment state for the exact order on this table.
- * The customer device uses this for its small polling loop.
+- Reads the current bill/payment state for the exact order on this table.
  */
 export async function getCustomerOrderState(
   tableId: string,
   orderId: string
 ): Promise<CustomerOrderState> {
-  const validated = await validateCustomerOrder(tableId, orderId);
+  const [validated, bill] = await Promise.all([
+    validateCustomerOrder(tableId, orderId),
+    getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId),
+  ]);
   if (!validated.ok) return { ok: false, error: validated.error };
-
-  const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
 
   return {
     ok: true,
@@ -145,92 +147,137 @@ export async function getCustomerOrderState(
 }
 
 /**
- * Customer-facing bill generation for the table device. It bills the exact
- * open order of the supplied table (ALL confirmed rounds, one combined bill).
- * Rates come from the owner's current billing settings and are frozen on the
- * bill; if more items are confirmed before payment the same bill is
- * recomputed with those same frozen rates. Live offers (Offers & Promotions) are
- * applied automatically as part of the discount; manual discounts stay with the owner.
+- Issues (or loads) the combined bill and returns BOTH the bill summary and
+- loyalty view in a single round-trip so the device never needs extra fetches.
  */
 export async function generateCustomerBill(
   tableId: string,
   orderId: string
 ): Promise<
-  | { ok: true; billNumber: string }
+  | {
+      ok: true;
+      billNumber: string;
+      bill: CustomerBillState;
+      billSnapshot: {
+        kind: "issued";
+        billId: string;
+        billNumber: string;
+        total: number;
+        paid: number;
+        remaining: number;
+        status: BillPaymentSummary["status"];
+      };
+    }
   | { ok: false; error: string }
 > {
-  const validated = await validateCustomerOrder(tableId, orderId);
+  const [validated, existing, settings] = await Promise.all([
+    validateCustomerOrder(tableId, orderId),
+    getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId),
+    getSettings(DEMO_RESTAURANT_ID),
+  ]);
   if (!validated.ok) return { ok: false, error: validated.error };
 
-  const existing = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
-  if (existing) return { ok: true, billNumber: formatBillNo(existing.billNo) };
+  let activeBill = existing;
 
-  const settings = await getSettings(DEMO_RESTAURANT_ID);
+  if (!activeBill) {
+    const result = await issueBillDb(
+      DEMO_RESTAURANT_ID,
+      orderId,
+      {
+        gstPercent: settings.gstRatePercent,
+        additionalTaxPercent: settings.additionalTaxPercent,
+        serviceChargePercent: settings.serviceChargePercent,
+        discountRupees: 0,
+      },
+      undefined,
+      { allowBeforeServed: true, applyOffers: true }
+    );
 
-  const result = await issueBillDb(
-    DEMO_RESTAURANT_ID,
-    orderId,
-    {
-      gstPercent: settings.gstRatePercent,
-      additionalTaxPercent: settings.additionalTaxPercent,
-      serviceChargePercent: settings.serviceChargePercent,
-      discountRupees: 0,
-    },
-    undefined,
-    { allowBeforeServed: true, applyOffers: true }
-  );
-
-  if (!result.ok) {
-    switch (result.reason) {
-      case "already-billed":
-        return { ok: true, billNumber: formatBillNo(result.bill.billNo) };
-      case "invalid-gst":
-      case "invalid-service-charge":
-        return { ok: false, error: "Billing rates are not configured correctly. Please ask the staff." };
-      default:
-        return { ok: false, error: "We could not generate the bill. Please ask your waiter." };
+    if (!result.ok) {
+      switch (result.reason) {
+        case "already-billed":
+          activeBill = result.bill;
+          break;
+        case "invalid-gst":
+        case "invalid-service-charge":
+          return { ok: false, error: "Billing rates are not configured correctly. Please ask the staff." };
+        default:
+          return { ok: false, error: "We could not generate the bill. Please ask your waiter." };
+      }
+    } else {
+      activeBill = result.bill;
+      revalidatePath("/owner/billing");
     }
   }
 
-  revalidatePath("/owner/billing");
-  revalidatePath("/owner/payments");
-  revalidatePath("/owner");
+  const state = await buildBillState(activeBill, settings.name);
+  const billNumber = formatBillNo(activeBill.billNo);
 
-  return { ok: true, billNumber: formatBillNo(result.bill.billNo) };
+  return {
+    ok: true,
+    billNumber,
+    bill: state,
+    billSnapshot: {
+      kind: "issued",
+      billId: activeBill.id,
+      billNumber,
+      total: state.totalRupees,
+      paid: state.paidRupees,
+      remaining: state.remainingRupees,
+      status: state.status,
+    },
+  };
 }
 
 /**
- * Creates a real Razorpay QR when configured.
- * If Razorpay is not configured, returns a clearly labelled demo reference.
+- Issues the bill on the spot if needed AND generates the Razorpay / Demo QR
+- in a single server round-trip.
  */
 export async function createPaymentQr(
   tableId: string,
   orderId: string
 ): Promise<PaymentQrResult> {
-  const validated = await validateCustomerOrder(tableId, orderId);
+  const [validated, existingBill, settings] = await Promise.all([
+    validateCustomerOrder(tableId, orderId),
+    getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId),
+    getSettings(DEMO_RESTAURANT_ID),
+  ]);
 
   if (!validated.ok) {
-    return {
-      ok: false,
-      code: "no-bill",
-      error: validated.error,
-    };
+    return { ok: false, code: "no-bill", error: validated.error };
   }
 
-  const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
+  let bill = existingBill;
 
   if (!bill) {
-    return {
-      ok: false,
-      code: "no-bill",
-      error: "Generate your bill first.",
-    };
+    const issued = await issueBillDb(
+      DEMO_RESTAURANT_ID,
+      orderId,
+      {
+        gstPercent: settings.gstRatePercent,
+        additionalTaxPercent: settings.additionalTaxPercent,
+        serviceChargePercent: settings.serviceChargePercent,
+        discountRupees: 0,
+      },
+      undefined,
+      { allowBeforeServed: true, applyOffers: true }
+    );
+    if (!issued.ok) {
+      if (issued.reason === "already-billed") {
+        bill = issued.bill;
+      } else {
+        return {
+          ok: false,
+          code: "no-bill",
+          error: "We could not generate the bill. Please ask your waiter.",
+        };
+      }
+    } else {
+      bill = issued.bill;
+    }
   }
 
-  const summary = await getBillPaymentSummaryDb(
-    DEMO_RESTAURANT_ID,
-    bill.id
-  );
+  const summary = await getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, bill.id);
 
   if (!summary || summary.remainingRupees <= 0) {
     return {
@@ -240,7 +287,6 @@ export async function createPaymentQr(
     };
   }
 
-  const settings = await getSettings(DEMO_RESTAURANT_ID);
   const cfg = getGatewayConfig();
 
   // Demo mode when Razorpay credentials are unavailable.
@@ -262,7 +308,6 @@ export async function createPaymentQr(
 
   // Real Razorpay QR.
   const amountPaise = Math.round(summary.remainingRupees * 100);
-
   const open = await getOpenIntent(bill.id);
 
   if (open && open.amountPaise === amountPaise && open.qrImageUrl) {
@@ -322,14 +367,17 @@ export async function createPaymentQr(
 }
 
 /**
- * Test-only payment simulation.
- * This is rejected whenever Razorpay is configured.
+- Test-only payment simulation.
+- This is rejected whenever Razorpay is configured.
  */
 export async function simulateDemoPayment(
   tableId: string,
   orderId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const validated = await validateCustomerOrder(tableId, orderId);
+  const [validated, bill] = await Promise.all([
+    validateCustomerOrder(tableId, orderId),
+    getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId),
+  ]);
 
   if (!validated.ok) {
     return { ok: false, error: validated.error };
@@ -342,16 +390,11 @@ export async function simulateDemoPayment(
     };
   }
 
-  const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
-
   if (!bill) {
     return { ok: false, error: "Bill not found." };
   }
 
-  const summary = await getBillPaymentSummaryDb(
-    DEMO_RESTAURANT_ID,
-    bill.id
-  );
+  const summary = await getBillPaymentSummaryDb(DEMO_RESTAURANT_ID, bill.id);
 
   if (!summary || summary.remainingRupees <= 0) {
     return { ok: false, error: "This bill is already settled." };
@@ -359,16 +402,12 @@ export async function simulateDemoPayment(
 
   const transactionId = `DEMO-${randomUUID().replace(/-/g, "")}`;
 
-  const payment = await recordBillPaymentDb(
-    DEMO_RESTAURANT_ID,
-    bill.id,
-    {
-      method: "qr",
-      amountRupees: summary.remainingRupees,
-      transactionId,
-      idempotencyKey: `demo-payment-${bill.id}`,
-    }
-  );
+  const payment = await recordBillPaymentDb(DEMO_RESTAURANT_ID, bill.id, {
+    method: "qr",
+    amountRupees: summary.remainingRupees,
+    transactionId,
+    idempotencyKey: `demo-payment-${bill.id}`,
+  });
 
   if (!payment.ok) {
     return {
@@ -376,23 +415,18 @@ export async function simulateDemoPayment(
       error: "Could not record demo payment. Please try again.",
     };
   }
-  try {
-  await onBillPaymentConfirmed(bill.id, "qr");
-} catch (error) {
-  console.error(
-    "[payment] Financial Pots confirmation failed:",
-    bill.id,
-    error
-  );
-}
 
-  revalidatePath("/owner");
+  try {
+    await onBillPaymentConfirmed(bill.id, "qr");
+  } catch (error) {
+    console.error("[payment] Financial Pots confirmation failed:", bill.id, error);
+  }
+
   revalidatePath("/owner/billing");
-  revalidatePath("/owner/payments");
-  revalidatePath("/owner/tables");
 
   return { ok: true };
 }
+
 // ---- loyalty (customer device) -------------------------------------------------
 
 type LoyaltyResult =
@@ -404,10 +438,11 @@ async function withLoyaltyBill(
   orderId: string,
   run: (bill: Bill) => Promise<{ ok: true } | { ok: false; message: string }>
 ): Promise<LoyaltyResult> {
-  const validated = await validateCustomerOrder(tableId, orderId);
+  const [validated, bill] = await Promise.all([
+    validateCustomerOrder(tableId, orderId),
+    getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId),
+  ]);
   if (!validated.ok) return { ok: false, message: validated.error, bill: null };
-
-  const bill = await getBillByOrderIdDb(DEMO_RESTAURANT_ID, orderId);
   if (!bill) return { ok: false, message: "Generate the bill first.", bill: null };
 
   const result = await run(bill);

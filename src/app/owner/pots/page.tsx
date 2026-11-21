@@ -3,18 +3,18 @@ import {
   Activity, Banknote, Box, Coins, Landmark, Package, Percent, PiggyBank, Receipt, RefreshCw, SlidersHorizontal,
   ShieldCheck, Truck, Users, Wallet, Wrench, ListChecks, FileText, type LucideIcon,
 } from "lucide-react";
-import { DEMO_BUSINESS_ID as B, getPotsRuntime } from "@/server/modules/pots/runtime";
+import { DEMO_BUSINESS_ID as B, ensurePotsRuntime } from "@/server/modules/pots/runtime";
 import { formatINR } from "@/server/modules/pots/money";
 import { STATUS_LABEL } from "@/server/modules/pots/views";
 import { buildOverviewAnalytics, parseRange, type Direction } from "@/server/modules/pots/analytics";
 import { AreaChart, DonutChart } from "@/components/pots/charts";
-import { Sparkline } from "@/components/pots/sparkline";
+import { LiquidGlassPot } from "@/components/pots/LiquidGlassPot";
 import { SandTimer } from "@/components/pots/sand-timer";
 import { gstCycle, growthDirection } from "@/components/pots/cycles";
 import { TONE, fmtRange, potColour } from "@/components/pots/tones";
 import { HistoryNotice, KpiCard, Panel, PageHero, ProgressBar, QuickAction, RangeTabs, TrendBadge, TrendCaption } from "./_components/premium";
 
-export const dynamic = "force-dynamic"; // ledger is live in-memory state
+export const dynamic = "force-dynamic";
 
 const currentTimestamp = () => Date.now();
 
@@ -28,7 +28,7 @@ const DIR_WORD: Record<Direction, string> = { up: "Balance increasing", down: "B
 export default async function FinancialPotsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   const { range: r } = await searchParams;
   const range = parseRange(r);
-  const rt = getPotsRuntime();
+  const rt = await ensurePotsRuntime();
   const o = buildOverviewAnalytics(rt, range);
   const { dash } = o;
   const t = dash.totals;
@@ -97,10 +97,10 @@ export default async function FinancialPotsPage({ searchParams }: { searchParams
         </Panel>
       </div>
 
-      {/* Pot cards with trend graphs */}
+      {/* Pot cards: liquid-filled glass jars */}
       <div>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-          <div><h2 className="text-sm font-semibold tracking-wide text-zinc-100">Pot balances</h2><p className="text-xs text-zinc-500">Trend over the selected range · green rises, red falls · % compares with the balance at the start of the range</p></div>
+          <div><h2 className="text-sm font-semibold tracking-wide text-zinc-100">Pot balances</h2><p className="text-xs text-zinc-500">Liquid level = remaining balance vs the pot&apos;s monthly target · hover a jar for the breakdown</p></div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
           {o.cards.map((c, i) => {
@@ -120,9 +120,18 @@ export default async function FinancialPotsPage({ searchParams }: { searchParams
                   </div>
                   <TrendBadge direction={tr.direction} pct={tr.pct} note={tr.pctNote} compact />
                 </div>
-                <p className="relative mt-3 text-2xl font-extrabold tracking-tight tabular-nums text-zinc-50">{formatINR(c.balance)}</p>
-                <p className="relative text-[11px]" style={{ color: tone }}>{DIR_WORD[tr.direction]}{tr.direction !== "none" && tr.direction !== "flat" ? ` · ${tr.change > 0 ? "+" : ""}${formatINR(tr.change)}` : ""}</p>
-                <div className="relative mt-3"><Sparkline points={tr.points} direction={dir} label={`${c.pot.name} balance trend: ${DIR_WORD[tr.direction]}`} /></div>
+                <p className="relative mt-2 text-[11px]" style={{ color: tone }}>{DIR_WORD[tr.direction]}{tr.direction !== "none" && tr.direction !== "flat" ? ` · ${tr.change > 0 ? "+" : ""}${formatINR(tr.change)}` : ""}</p>
+                <div className="relative mt-3">
+                  <LiquidGlassPot
+                    name={c.pot.name}
+                    accentColour={potColour(c.pot.type === "CUSTOM" ? c.pot.id : c.pot.type, i)}
+                    availablePaise={c.balance}
+                    limitPaise={c.targetPaise}
+                    shareBasisPaise={t.allocatedToPots}
+                    recentDelta={tr.direction === "none" ? null : { paise: tr.change, label: "Change in range" }}
+                    size="md"
+                  />
+                </div>
                 <div className="relative mt-2 flex items-center justify-between text-[11px] text-zinc-500">
                   <span>{fmtRange(tr.from, tr.to)}</span><TrendCaption t={tr} />
                 </div>

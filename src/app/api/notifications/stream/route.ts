@@ -44,7 +44,7 @@ export async function GET(req: Request) {
 
       while (!closed && Date.now() - startedAt < MAX_STREAM_MS) {
         try {
-          const fresh = await listSince(session.role, since);
+          const fresh = await listSince(session.role, since, session.restaurantId);
 
           for (const notification of fresh) {
             const at = new Date(notification.createdAt);

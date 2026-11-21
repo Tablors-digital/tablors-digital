@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/server/db/client";
+import { bills, payments } from "@/server/db/schema";
 import type { Bill } from "@/server/modules/demo-store/store";
-import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
 import { listPaymentsDb } from "@/server/modules/billing/db-billing";
-import { DEMO_BUSINESS_ID, getPotsRuntime } from "@/server/modules/pots/runtime";
+import { ensurePotsRuntime } from "@/server/modules/pots/runtime";
 import { settleLoyaltyForBillDb, reverseLoyaltyForRefundDb } from "@/server/modules/loyalty-db/db-loyalty";
 import { notify } from "@/server/modules/notifications/store";
 
@@ -21,10 +23,31 @@ function readStorePayment(p: unknown): { id: string; billId: string; amountRupee
   return null;
 }
 
-/** Kept so existing callers still compile; loyalty now comes from the DB bill link. */
 export interface LoyaltyContext {
   customerId: string;
   bill: unknown;
+}
+
+async function resolveBillRestaurantId(billId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ restaurantId: bills.restaurantId })
+    .from(bills)
+    .where(eq(bills.id, billId))
+    .limit(1);
+  return row?.restaurantId ?? null;
+}
+
+async function resolveRefundRestaurantId(paymentId: string, billId?: string): Promise<string | null> {
+  if (billId) {
+    const fromBill = await resolveBillRestaurantId(billId);
+    if (fromBill) return fromBill;
+  }
+  const [row] = await db
+    .select({ restaurantId: payments.restaurantId })
+    .from(payments)
+    .where(eq(payments.id, paymentId))
+    .limit(1);
+  return row?.restaurantId ?? null;
 }
 
 export async function onBillPaymentConfirmed(
@@ -33,61 +56,77 @@ export async function onBillPaymentConfirmed(
   _loyalty?: LoyaltyContext,
 ): Promise<void> {
   void _loyalty;
+  const restaurantId = await resolveBillRestaurantId(billId);
+  if (!restaurantId) {
+    console.error("[pots] could not resolve restaurantId for bill", billId);
+    return;
+  }
+
   try {
-    const settled = await settleLoyaltyForBillDb(DEMO_RESTAURANT_ID, billId);
+    const settled = await settleLoyaltyForBillDb(restaurantId, billId);
     if (settled && settled.earned > 0) {
-      await notify({
-        type: "LOYALTY_POINTS_EARNED",
-        title: "Loyalty points earned",
-        message: `Member ${settled.phoneMasked} earned ${settled.earned} points (balance ${settled.balance}).`,
-        dedupeKey: `loyalty-earn:${billId}`,
-      });
+      await notify(
+        {
+          type: "LOYALTY_POINTS_EARNED",
+          title: "Loyalty points earned",
+          message: `Member ${settled.phoneMasked} earned ${settled.earned} points (balance ${settled.balance}).`,
+          dedupeKey: `loyalty-earn:${billId}`,
+        },
+        restaurantId,
+      );
     }
   } catch (error) {
     console.error("[loyalty] settle failed for bill", billId, error);
   }
 
-  const rt = getPotsRuntime();
+  const rt = await ensurePotsRuntime(restaurantId);
   const at = new Date();
-  for (const raw of await listPaymentsDb(DEMO_RESTAURANT_ID)) {
+  for (const raw of await listPaymentsDb(restaurantId)) {
     const p = readStorePayment(raw);
     if (!p || p.billId !== billId) continue;
     const result = rt.payments.handleEvent({
-      providerEventId: `demo:${p.id}:success`,
+      providerEventId: `pay:${restaurantId}:${p.id}:success`,
       providerRef: p.id,
-      businessId: DEMO_BUSINESS_ID,
+      businessId: restaurantId,
       billId,
       amount: rupeesToPaise(p.amountRupees),
       status: "SUCCESS",
       at,
     });
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[pots] bill ${billId} payment ${p.id} (${method}): ${result.outcome}`);
+      console.log(`[pots] restaurant ${restaurantId} bill ${billId} payment ${p.id} (${method}): ${result.outcome}`);
     }
   }
 }
 
-export function onPaymentRefunded(input: {
+export async function onPaymentRefunded(input: {
   refundId: string;
   paymentId: string;
-  /** Needed to reverse loyalty points on the bill. */
   billId?: string;
   amountRupees: number;
   reason: string;
   stepUpVerified?: boolean;
-}): void {
+  actorId?: string;
+}): Promise<void> {
+  const restaurantId = await resolveRefundRestaurantId(input.paymentId, input.billId);
+  if (!restaurantId) {
+    console.error("[pots] could not resolve restaurantId for refund", input.refundId);
+    return;
+  }
+
   if (input.billId) {
-    void reverseLoyaltyForRefundDb(DEMO_RESTAURANT_ID, input.billId).catch((e) =>
+    void reverseLoyaltyForRefundDb(restaurantId, input.billId).catch((e) =>
       console.error("[loyalty] refund reversal failed", input.refundId, e),
     );
   }
-  const rt = getPotsRuntime();
+
+  const rt = await ensurePotsRuntime(restaurantId);
   try {
     const res = rt.payments.refund({
       refundId: input.refundId,
       providerRef: input.paymentId,
       amount: rupeesToPaise(input.amountRupees),
-      actorId: "owner",
+      actorId: input.actorId ?? "owner",
       at: new Date(),
       reason: input.reason,
       stepUpVerified: input.stepUpVerified,

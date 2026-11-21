@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
+import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { loadEnvConfig } from "@next/env";
 
@@ -62,6 +63,26 @@ const queryClient =
   }));
 
 export const db = drizzle(queryClient);
+
+export type TenantTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Runs a callback inside a transaction with `app.restaurant_id` set locally
+ * (`is_local = true`), safe with transaction pooling (`prepare: false`).
+ */
+export async function withTenantDb<T>(
+  restaurantId: string,
+  fn: (tx: TenantTx) => Promise<T>,
+): Promise<T> {
+  const trimmed = restaurantId.trim();
+  if (!trimmed) {
+    throw new Error("[tablors:db] withTenantDb requires a non-empty restaurantId");
+  }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.restaurant_id', ${trimmed}, true)`);
+    return fn(tx);
+  });
+}
 
 /** Cheap connectivity probe used by /api/health. */
 export async function pingDatabase(): Promise<void> {

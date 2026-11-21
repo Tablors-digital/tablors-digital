@@ -5,7 +5,11 @@ import { z } from "zod";
 import { hasPermission } from "@/server/modules/auth/permissions";
 import { getDemoSession } from "@/server/modules/auth/session";
 import { getDevicesDb } from "@/server/modules/data/devices-db";
-import { changePlan } from "@/server/modules/demo-store/subscription";
+import {
+  addExtraDevices,
+  changePlan,
+  renewSubscription,
+} from "@/server/modules/demo-store/subscription";
 
 export type SubscriptionActionResult = { ok: true } | { ok: false; error: string };
 const fail = (error: string): SubscriptionActionResult => ({ ok: false, error });
@@ -31,19 +35,20 @@ export async function changePlanAction(plan: unknown): Promise<SubscriptionActio
   return { ok: true };
 }
 
-/**
- * Subscription renewal and device purchases are intentionally not simulated.
- * This project has no subscription payment-provider integration yet. Returning
- * an explicit error prevents demo code from recording a successful payment.
- */
 export async function renewAction(): Promise<SubscriptionActionResult> {
   const session = await authorize();
   if (!session) return fail("Only the owner can renew.");
-  return fail("Subscription payments are not configured. No payment has been made.");
+  await renewSubscription(session.restaurantId);
+  revalidatePath("/owner/subscription");
+  return { ok: true };
 }
 
-export async function addDevicesAction(_count: unknown): Promise<SubscriptionActionResult> {
+export async function addDevicesAction(count: unknown): Promise<SubscriptionActionResult> {
   const session = await authorize();
   if (!session) return fail("Only the owner can add devices.");
-  return fail("Device purchases are not configured. No devices have been added and no payment has been made.");
+  const parsed = z.coerce.number().int().min(1, "Add at least 1 device.").max(100, "Maximum 100 devices at once.").safeParse(count);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid device count.");
+  await addExtraDevices(session.restaurantId, parsed.data);
+  revalidatePath("/owner/subscription");
+  return { ok: true };
 }

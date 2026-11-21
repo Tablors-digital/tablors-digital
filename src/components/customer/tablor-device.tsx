@@ -13,7 +13,7 @@ import { OrderPanel } from "./device/order-panel";
 import { BillPopup } from "./device/bill-popup";
 import { MenuQrPopup, QrPopup, type QrState } from "./device/qr-popup";
 import { WaiterBanner } from "./device/waiter-banner";
-import { DeviceFeedback } from "./device/device-feedback";
+import { DeviceFeedback, type FeedbackControls } from "./device/device-feedback";
 import {
   ScreenNotice,
   type ScreenNoticeData,
@@ -69,11 +69,11 @@ export function TablorDevice({
   const router = useRouter();
 
   /*
-   * Item selection works like the real device:
-   *  1. Type the item code on the keypad (codeDraft)
-   *  2. Press ✓  -> the item is selected (selectedCode)
-   *  3. Type the quantity (or use + / -)
-   *  4. Press ✓  -> the item is added to the order
+- Item selection works like the real device:
+-  1. Type the item code on the keypad (codeDraft)
+-  2. Press ✓  -> the item is selected (selectedCode)
+-  3. Type the quantity (or use + / -)
+-  4. Press ✓  -> the item is added to the order
    */
   const [codeDraft, setCodeDraft] = useState("");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
@@ -89,7 +89,10 @@ export function TablorDevice({
   const [closedOrderId, setClosedOrderId] = useState<string | null>(null);
   const [waiterHidden, setWaiterHidden] = useState<string | null>(null);
 
+  // Feedback opens inside the right-hand LCD screen when F / FEEDBACK is pressed.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackActive, setFeedbackActive] = useState(false);
+  const feedbackRef = useRef<FeedbackControls>(null);
   const [billOpen, setBillOpen] = useState(false);
   const [generatingBill, setGeneratingBill] = useState(false);
   const [loyaltyState, setLoyaltyState] = useState<CustomerBillState | null>(null);
@@ -103,10 +106,10 @@ export function TablorDevice({
   const [billRedeem, setBillRedeem] = useState("");
 
   /*
-   * Keyboard ordering. The menu is always fully visible and items are chosen
-   * by typing their code. ArrowUp / ArrowDown (and the keypad ▲ ▼ keys) only
-   * move through the items already in the order list; X removes ONE quantity
-   * of the highlighted line (the line disappears at zero).
+- Keyboard ordering. The menu is always fully visible and items are chosen
+- by typing their code. ArrowUp / ArrowDown (and the keypad ▲ ▼ keys) only
+- move through the items already in the order list; X removes ONE quantity
+- of the highlighted line (the line disappears at zero).
    */
   const [cartCursor, setCartCursor] = useState<string | null>(null);
   const [srMessage, setSrMessage] = useState("");
@@ -124,12 +127,11 @@ export function TablorDevice({
     qty: l.qty,
     round: l.round,
   }));
-  const confirmedCount = confirmedLines.reduce((n, l) => n + l.qty, 0);
   const tableReserved = snap.table.status === "reserved";
 
   /*
-   * On-screen notices (bottom of the device). One at a time; repeating the
-   * same message re-triggers it because every notice gets a new id.
+- On-screen notices (bottom of the device). One at a time; repeating the
+- same message re-triggers it because every notice gets a new id.
    */
   const [notice, setNotice] = useState<ScreenNoticeData | null>(null);
   const noticeSeq = useRef(0);
@@ -162,10 +164,10 @@ export function TablorDevice({
   );
 
   /*
-   * Automatic synchronisation. One lightweight read of this table's state
-   * every few seconds (only while the tab is visible), plus an immediate
-   * refresh after every action. A newer response always wins; a slow, older
-   * response can never overwrite fresher state.
+- Automatic synchronisation. One lightweight read of this table's state
+- every few seconds (only while the tab is visible), plus an immediate
+- refresh after every action. A newer response always wins; a slow, older
+- response can never overwrite fresher state.
    */
   const reqSeq = useRef(0);
   const failures = useRef(0);
@@ -241,16 +243,16 @@ export function TablorDevice({
   const { syncWithMenu } = cart;
 
   /*
-   * Keep the local cart synchronized with canonical menu availability.
+- Keep the local cart synchronized with canonical menu availability.
    */
   useEffect(() => {
     syncWithMenu(items);
   }, [items, syncWithMenu]);
 
   /*
-   * Closing the bill panel always resets what was being keyed in for it
-   * (phone number and points to redeem). Done here, in the event paths,
-   * instead of in an effect, so no state is set from inside an effect.
+- Closing the bill panel always resets what was being keyed in for it
+- (phone number and points to redeem). Done here, in the event paths,
+- instead of in an effect, so no state is set from inside an effect.
    */
   function closeBill() {
     setBillOpen(false);
@@ -258,13 +260,26 @@ export function TablorDevice({
     setBillRedeem("");
   }
 
+  function closeFeedback() {
+    setFeedbackOpen(false);
+    setFeedbackActive(false);
+  }
+
   /*
-   * Number keys:
-   *  - bill panel open      -> build the mobile number / points to redeem
-   *  - no item selected yet -> build the item code
-   *  - item selected        -> build the quantity
+- Number keys:
+-  - feedback open        -> rate the highlighted feedback row (0 = 10)
+-  - bill panel open      -> build the mobile number / points to redeem
+-  - no item selected yet -> build the item code
+-  - item selected        -> build the quantity
    */
   function handleDigit(digit: string) {
+    // Feedback open: the keypad rates the highlighted row (1-9, 0 = 10) and moves on.
+    if (feedbackOpen && feedbackRef.current) {
+      setFeedbackActive(true);
+      feedbackRef.current.digit(digit);
+      return;
+    }
+
     // Bill panel open: the keypad types the customer's mobile number.
     if (billOpen) {
       if (loyaltyIdentified) {
@@ -297,10 +312,17 @@ export function TablorDevice({
   }
 
   /*
-   * X key: delete the last code digit, or the last quantity digit. With
-   * nothing typed and an order line highlighted, it removes one of that item.
+- X key: delete the last code digit, or the last quantity digit. With
+- nothing typed and an order line highlighted, it removes one of that item.
+- While feedback is open it clears the highlighted rating.
    */
   function handleBackspace() {
+    if (feedbackOpen && feedbackRef.current) {
+      setFeedbackActive(true);
+      feedbackRef.current.clear();
+      return;
+    }
+
     if (billOpen) {
       if (loyaltyIdentified) setBillRedeem((prev) => prev.slice(0, -1));
       else setBillPhone((prev) => prev.slice(0, -1));
@@ -322,12 +344,19 @@ export function TablorDevice({
   }
 
   /*
-   * ✓ key:
-   *  - bill panel open  -> confirm the mobile number / generate the QR
-   *  - no item selected -> look up the typed item code and select it
-   *  - item selected    -> add the item with the chosen quantity
+- ✓ key:
+-  - feedback open    -> submit the feedback
+-  - bill panel open  -> confirm the mobile number / generate the QR
+-  - no item selected -> look up the typed item code and select it
+-  - item selected    -> add the item with the chosen quantity
    */
   function handleCommitQty() {
+    // Feedback open: ✓ submits (needs the required ratings).
+    if (feedbackOpen && feedbackRef.current) {
+      feedbackRef.current.enter();
+      return;
+    }
+
     // Bill panel open: ✓ confirms the phone number, then generates the QR.
     if (billOpen) {
       void handleBillConfirm();
@@ -425,18 +454,25 @@ export function TablorDevice({
 
   /** Mouse / touch on a menu row: highlight it and add one. */
   function handleMenuRowSelect(code: string) {
-    if (billOpen) return;
+    if (billOpen || feedbackOpen) return;
     // Tapping the menu hands the keyboard back to typing: X must not hit an order line by accident.
     setCartCursor(null);
     addMenuItemOne(code);
   }
 
   /**
-   * ▲ ▼ (keypad buttons and keyboard arrows) move ONLY through the lines of "Your Order".
-   * They never highlight, move through or scroll the menu list, and do nothing
-   * while the bill or payment QR is showing in place of the order panel.
+- ▲ ▼ (keypad buttons and keyboard arrows) move ONLY through the lines of "Your Order".
+- They never highlight, move through or scroll the menu list, and do nothing
+- while the bill or payment QR is showing in place of the order panel.
+- While feedback is open they move the highlighted feedback row instead.
    */
   function moveCursor(delta: number) {
+    if (feedbackOpen && feedbackRef.current) {
+      setFeedbackActive(true);
+      feedbackRef.current.move(delta);
+      return;
+    }
+
     if (billOpen || qrOpen) {
       // The bill / QR panel replaces "Your Order": ▲▼ scroll that panel.
       scrollRightPanel(delta);
@@ -485,10 +521,10 @@ export function TablorDevice({
   }
 
   /*
-   * ✓ while the bill panel is open:
-   *  - loyalty is on, no member yet, and a number was typed -> look the member up
-   *  - member identified and points typed -> apply that reward, then the QR
-   *  - otherwise -> generate the payment QR
+- ✓ while the bill panel is open:
+-  - loyalty is on, no member yet, and a number was typed -> look the member up
+-  - member identified and points typed -> apply that reward, then the QR
+-  - otherwise -> generate the payment QR
    */
   async function handleBillConfirm() {
     const needsPhone =
@@ -561,8 +597,8 @@ export function TablorDevice({
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
 
     const target = event.target as HTMLElement | null;
-    // Never interfere with typing in a text field or the feedback form.
-    if (target?.closest("input, textarea, select, [contenteditable='true'], #device-feedback")) return;
+    // Never interfere with typing in a text field. (The feedback form has none: it is keypad driven.)
+    if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
 
     const key = event.key;
     const lower = key.toLowerCase();
@@ -572,6 +608,38 @@ export function TablorDevice({
       if (event.repeat) return;
       event.preventDefault();
       void handleCallWaiter();
+      return;
+    }
+
+    // Feedback mode inside the right-hand LCD screen: ▲▼ move rows, 1-9 / 0 (=10) rate, X clears, Enter submits, Esc/F closes.
+    if (feedbackOpen) {
+      if (key === "Escape" || lower === "f") {
+        if (event.repeat) return;
+        event.preventDefault();
+        closeFeedback();
+        return;
+      }
+      if (key === "ArrowUp" || key === "ArrowDown") {
+        event.preventDefault();
+        moveCursor(key === "ArrowUp" ? -1 : 1);
+        return;
+      }
+      if (key === "Enter") {
+        if (event.repeat) return;
+        event.preventDefault();
+        handleCommitQty();
+        return;
+      }
+      if (lower === "x" || key === "Backspace") {
+        event.preventDefault();
+        handleBackspace();
+        return;
+      }
+      if (/^[0-9]$/.test(key)) {
+        event.preventDefault();
+        handleDigit(key);
+        return;
+      }
       return;
     }
 
@@ -750,8 +818,8 @@ export function TablorDevice({
   }
 
   /*
-   * CLEAR ALL: empties only the live, unconfirmed cart. Confirmed rounds live
-   * on the server and every other table has its own cart, so neither is touched.
+- CLEAR ALL: empties only the live, unconfirmed cart. Confirmed rounds live
+- on the server and every other table has its own cart, so neither is touched.
    */
   function handleClearAll() {
     cart.clearCart();
@@ -879,10 +947,8 @@ export function TablorDevice({
   }
 
   /*
-   * BILL GEN: issues the ONE combined bill for every confirmed round (or
-   * re-opens the existing one) and shows the bill panel in the device screen.
-   * Loyalty data is loaded BEFORE the panel opens, and any stale loyalty state
-   * from a previous bill is cleared first.
+- BILL GEN: issues the ONE combined bill for every confirmed round and receives
+- the full bill + loyalty view in a single server round-trip.
    */
   async function handleBillGen() {
     if (!orderId) {
@@ -892,6 +958,7 @@ export function TablorDevice({
 
     if (generatingBill) return;
 
+    closeFeedback();
     // Open the panel at once (it shows "Generating bill…") so the screen never
     // sits idle. Every bill starts with fresh loyalty state and empty fields.
     setGeneratingBill(true);
@@ -911,8 +978,30 @@ export function TablorDevice({
       return;
     }
 
-    // Bill state and loyalty data load in parallel, not one after the other.
-    await Promise.all([refresh(), openLoyalty()]);
+    setLoyaltyState(result.bill);
+    if (snap.bill) {
+      const nextStatus: NonNullable<CustomerSnapshot["bill"]>["status"] =
+        result.billSnapshot.status === "paid" || result.billSnapshot.status === "refunded"
+          ? "paid"
+          : result.billSnapshot.status === "partial"
+            ? "partial"
+            : "unpaid";
+      setSnap((prev) =>
+        prev.bill
+          ? {
+              ...prev,
+              bill: {
+                ...prev.bill,
+                ...result.billSnapshot,
+                status: nextStatus,
+              },
+            }
+          : prev
+      );
+      void refresh();
+    } else {
+      await refresh();
+    }
     setGeneratingBill(false);
   }
 
@@ -927,9 +1016,8 @@ export function TablorDevice({
   }
 
   /*
-   * QR GEN / SCAN TO PAY: the only QR. It needs a bill (issued on the spot if
-   * the customer hasn't pressed BILL GEN yet) and asks the gateway for a QR of
-   * the exact payable amount.
+- QR GEN / SCAN TO PAY: issues the bill on the server if needed and generates
+- the payment QR in a single server round-trip.
    */
   async function handleQrGen() {
     // Before any order: QR GEN shows the menu QR. After ordering: the dynamic pay QR.
@@ -938,19 +1026,9 @@ export function TablorDevice({
       return;
     }
 
+    closeFeedback();
     closeBill();
     setQrOpen(true);
-    setQrState({ status: "loading" });
-
-    if (snap.bill?.kind !== "issued") {
-      const made = await generateCustomerBill(tableId, orderId).catch(
-        () => ({ ok: false as const, error: "Couldn't generate the bill. Please try again." })
-      );
-      if (!made.ok) {
-        setQrState({ status: "done", result: { ok: false, code: "no-bill", error: made.error } });
-        return;
-      }
-    }
     await loadQr();
   }
 
@@ -973,19 +1051,24 @@ export function TablorDevice({
     await refresh();
   }
 
+  /*
+- F key / FEEDBACK key: opens the feedback panel directly inside the right-hand
+- device LCD screen (or closes it back to Your Order if already open).
+   */
   function handleFeedback() {
-    if (!orderId) {
+    if (!orderId || sessionClosed) {
       showNotice("info", "Place your order first, then you can share feedback.");
       return;
     }
-    setFeedbackOpen((open) => !open);
-  }
-
-  useEffect(() => {
     if (feedbackOpen) {
-      document.getElementById("device-feedback")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      closeFeedback();
+      return;
     }
-  }, [feedbackOpen]);
+    closeBill();
+    setQrOpen(false);
+    setFeedbackOpen(true);
+    setFeedbackActive(true);
+  }
 
   // Loyalty: each call returns the refreshed bill (new total after a reward).
   // The refresh is awaited so the discounted total is current before the QR is made.
@@ -1025,7 +1108,7 @@ export function TablorDevice({
           feedbackSubmitted={snap.feedbackSubmitted}
           onNewOrder={() => {
             setClosedOrderId(order.id);
-            setFeedbackOpen(false);
+            closeFeedback();
             cart.clearCart();
           }}
         />
@@ -1042,6 +1125,9 @@ export function TablorDevice({
     snap.table.status === "reserved" ? "RESERVED" : snap.table.status === "occupied" ? "OCCUPIED" : "AVAILABLE";
   const statusColor =
     snap.table.status === "reserved" ? "#f5a623" : snap.table.status === "occupied" ? "#4fd6e8" : "#5fe08a";
+
+  const confirmedCount = shownLines.reduce((sum, l) => sum + l.qty, 0);
+  const confirmedTotal = shownLines.reduce((sum, l) => sum + l.qty * l.priceRupees, 0);
 
   const uniqueRateLines = Array.from(
     new Map(shownLines.map((l) => [l.itemId || l.code, l])).values()
@@ -1158,19 +1244,50 @@ export function TablorDevice({
           onFeedback={handleFeedback}
           onArrowUp={() => moveCursor(-1)}
           onArrowDown={() => moveCursor(1)}
-          entryHint={billOpen ? billEntryHint : undefined}
+          entryHint={billOpen ? billEntryHint : feedbackOpen ? "▲▼ row · 1–9 rate · 0=10 · ✓ submit · Esc close" : undefined}
           entryValue={billOpen ? (loyaltyIdentified ? billRedeem.padEnd(3, "_") : billPhone.padEnd(10, "_")) : undefined}
         />
 
         {/*
-          Right-hand slot ("Your Order" area). The bill, then the payment QR,
-          take its place INSIDE the device frame; the order panel returns when
-          both are closed.
+          Right-hand slot ("Your Order" area). Feedback, the bill, then the payment QR,
+          take its place INSIDE the device frame; the order panel returns when closed.
         */}
         <div className="relative h-full min-h-[30rem] lg:min-h-0" data-device-right>
           {/* Absolutely filled: the panel can never make the row taller than the keypad; it scrolls inside. */}
           <div className="absolute inset-0">
-          {billOpen && !snap.paid && snap.bill && (snap.bill.kind === "issued" || !generatingBill) ? (
+          {feedbackOpen && hasOrder ? (
+            <div className="relative h-full overflow-y-auto rounded-lg border" style={{ background: "var(--device-lcd-bg)", borderColor: "var(--device-gold)" }}>
+              <div className="sticky top-0 z-10 flex justify-end px-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeFeedback}
+                  className="rounded border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider"
+                  style={{
+                    background: "var(--device-shell)",
+                    borderColor: "var(--device-gold)",
+                    color: "var(--device-gold)",
+                  }}
+                >
+                  ✕ Back to Order
+                </button>
+              </div>
+              <DeviceFeedback
+                ref={feedbackRef}
+                key={orderId ?? "no-order"}
+                tableId={tableId}
+                orderId={orderId}
+                orderLines={uniqueRateLines}
+                alreadySubmitted={snap.feedbackSubmitted}
+                active={feedbackActive}
+                onActiveChange={setFeedbackActive}
+                onSubmitted={() => {
+                  closeFeedback();
+                  setSnap((prev) => ({ ...prev, feedbackSubmitted: true }));
+                }}
+                onNotice={showNotice}
+              />
+            </div>
+          ) : billOpen && !snap.paid && snap.bill && (snap.bill.kind === "issued" || !generatingBill) ? (
             <BillPopup
               bill={snap.bill}
               busy={generatingBill}
@@ -1218,8 +1335,8 @@ export function TablorDevice({
               onSelectLine={setCartCursor}
               tableLabel={tableLabel}
               lines={cart.lines}
-              itemCount={cart.itemCount}
-              totalRupees={cart.totalRupees}
+              itemCount={cart.itemCount + confirmedCount}
+              totalRupees={cart.totalRupees + confirmedTotal}
               selection={
                 selectedItem
                   ? {
@@ -1242,34 +1359,6 @@ export function TablorDevice({
       <p className="sr-only" role="status" aria-live="polite">
         {srMessage}
       </p>
-
-      {/* FEEDBACK appears only after an order is confirmed; the form stays hidden until pressed */}
-      {hasOrder && confirmedCount > 0 && (
-        <div className="mx-1 mt-3 sm:mx-2">
-          <button
-            type="button"
-            onClick={handleFeedback}
-            aria-expanded={feedbackOpen}
-            aria-controls="device-feedback"
-            className="w-full rounded-md border py-2.5 text-sm font-bold uppercase tracking-[0.2em] transition-transform active:scale-[0.98]"
-            style={{ borderColor: "var(--device-gold)", color: "var(--device-gold)", background: "var(--device-lcd-bg)" }}
-          >
-            {feedbackOpen ? "Hide feedback" : "Feedback"}
-          </button>
-        </div>
-      )}
-
-      {hasOrder && feedbackOpen && (
-        <DeviceFeedback
-          key={orderId ?? "no-order"}
-          tableId={tableId}
-          orderId={orderId}
-          orderLines={uniqueRateLines}
-          alreadySubmitted={snap.feedbackSubmitted}
-          onSubmitted={() => setSnap((prev) => ({ ...prev, feedbackSubmitted: true }))}
-          onNotice={showNotice}
-        />
-      )}
 
       {/* Footer: waiter-call status + notifications (stick to the viewport bottom) */}
       <div className="sticky bottom-2 z-20">

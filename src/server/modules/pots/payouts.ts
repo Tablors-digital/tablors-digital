@@ -5,13 +5,13 @@ import { maskRef } from "./payroll";
 import { PermissionError, StepUpRequiredError, type ActorRole, type AlertCenter, type AuditLog } from "./support";
 
 /**
- * Payouts, supplier payments, profit withdrawals, tax transfers and manual Pot movements, all on the
- * single Pots Ledger (Pots spec §9-§12, acceptance 7-9, 12).
+- Payouts, supplier payments, profit withdrawals, tax transfers and manual Pot movements, all on the
+- single Pots Ledger (Pots spec §9-§12, acceptance 7-9, 12).
  *
- * Lifecycle: request -> (approval, step-up if high-risk, maker-checker if enabled) -> execute via the
- * provider integration layer -> ledger posts ONLY on provider SUCCESS. A failed payout never reduces a Pot.
- * Money held for pending/approved payouts is "reserved" and cannot be spent twice.
- * Provider behaviour is SIMULATED (prototype). Recipients are provider tokens/references, shown masked.
+- Lifecycle: request -> (approval, step-up if high-risk, maker-checker if enabled) -> execute via the
+- provider integration layer -> ledger posts ONLY on provider SUCCESS. A failed payout never reduces a Pot.
+- Money held for pending/approved payouts is "reserved" and cannot be spent twice.
+- Provider behaviour is SIMULATED (prototype). Recipients are provider tokens/references, shown masked.
  */
 export type PayoutKind = "SALARY" | "SUPPLIER" | "PROFIT" | "TAX" | "TRANSFER";
 export type PayoutStatus = "PENDING_APPROVAL" | "APPROVED" | "SUCCESS" | "FAILED" | "CANCELLED";
@@ -59,7 +59,12 @@ export class PayoutService {
   private need(role: ActorRole, a: Action) { if (!can(role, a, this.opts.grants)) throw new PermissionError(`${role} cannot ${a}`); }
 
   // ---------- reads ----------
-  get(id: string) { return this.payouts.get(id); }
+  get(id: string, businessId?: string) {
+    const p = this.payouts.get(id);
+    if (!p) return undefined;
+    if (businessId && p.businessId !== businessId) return undefined;
+    return p;
+  }
   list(businessId: string, kind?: PayoutKind): Payout[] {
     return [...this.payouts.values()].filter((p) => p.businessId === businessId && (!kind || p.kind === kind)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
@@ -71,8 +76,12 @@ export class PayoutService {
 
   // ---------- payouts ----------
   requestPayout(i: PayoutRequest): Payout {
-    const existing = this.payouts.get(i.payoutId); if (existing) return existing; // idempotent
-    const { ledger, audit, alerts } = this.deps;
+    const existing = this.payouts.get(i.payoutId);
+    if (existing) {
+      if (existing.businessId !== i.businessId) throw new PermissionError("payout belongs to another restaurant");
+      return existing; // idempotent within same restaurant
+    }
+    const { audit, alerts } = this.deps;
     const kind = i.kind ?? "TRANSFER";
     if (!this.deps.potIds().includes(i.potId)) throw new Error(`pot ${i.potId} not found`);
     assertPositivePaise(i.amount, "payout");
@@ -96,8 +105,8 @@ export class PayoutService {
     return p;
   }
 
-  approvePayout(i: { payoutId: string; actorId: string; role: ActorRole; stepUpVerified: boolean; at?: Date }): Payout {
-    const p = this.must(i.payoutId);
+  approvePayout(i: { payoutId: string; businessId?: string; actorId: string; role: ActorRole; stepUpVerified: boolean; at?: Date }): Payout {
+    const p = this.must(i.payoutId, i.businessId);
     this.need(i.role, "PAYOUT_APPROVE");
     if (p.status !== "PENDING_APPROVAL") return p;
     if (p.highRisk && !i.stepUpVerified) throw new StepUpRequiredError("step-up authentication required to approve this payout");
@@ -108,8 +117,8 @@ export class PayoutService {
     return p;
   }
 
-  cancelPayout(payoutId: string, actorId: string, role: ActorRole): Payout {
-    const p = this.must(payoutId);
+  cancelPayout(payoutId: string, actorId: string, role: ActorRole, businessId?: string): Payout {
+    const p = this.must(payoutId, businessId);
     if (!(can(role, "PAYOUT_APPROVE", this.opts.grants) || (can(role, "PAYOUT_REQUEST", this.opts.grants) && actorId === p.requestedBy))) throw new PermissionError(`${role} cannot cancel this payout`);
     if (p.status === "PENDING_APPROVAL" || p.status === "APPROVED") {
       p.status = "CANCELLED";
@@ -119,8 +128,8 @@ export class PayoutService {
   }
 
   /** `providerResult` comes from the (simulated) provider integration layer. Ledger posts only on SUCCESS. */
-  executePayout(payoutId: string, providerResult: { status: "SUCCESS" | "FAILED"; providerRef: string }, at = this.clock()): Payout {
-    const p = this.must(payoutId);
+  executePayout(payoutId: string, providerResult: { status: "SUCCESS" | "FAILED"; providerRef: string }, at = this.clock(), businessId?: string): Payout {
+    const p = this.must(payoutId, businessId);
     if (p.status === "SUCCESS" || p.status === "FAILED") return p; // idempotent
     if (p.status !== "APPROVED") throw new PermissionError("payout must be approved before execution");
     const { ledger, audit, alerts } = this.deps;
@@ -141,7 +150,11 @@ export class PayoutService {
     audit.record({ businessId: p.businessId, actorId: "system", action: `PAYOUT_${p.status}`, entity: "payout", entityId: p.id, after: { providerRef: p.providerRef, failure }, at });
     return p;
   }
-  private must(id: string) { const p = this.payouts.get(id); if (!p) throw new Error("payout not found"); return p; }
+  private must(id: string, businessId?: string) {
+    const p = this.payouts.get(id);
+    if (!p || (businessId && p.businessId !== businessId)) throw new Error("payout not found");
+    return p;
+  }
 
   // ---------- manual Pot movements (reserve / transfer / owner override) ----------
   /** Moves money between Pots / UNALLOCATED. Owner only, step-up, mandatory reason, idempotent, balanced, audited. */

@@ -28,22 +28,26 @@ export async function GET(req: Request) {
 
   for (const type of toFire) {
     created.push(
-      await notify({
-        type,
-        title: `TEST ${String(type)}`,
-        message: `Test notification for ${String(type)}`,
-      }),
+      await notify(
+        {
+          type,
+          title: `TEST ${String(type)}`,
+          message: `Test notification for ${String(type)}`,
+        },
+        session.restaurantId,
+      ),
     );
   }
 
   return NextResponse.json({
     sessionRole: session.role,
+    restaurantId: session.restaurantId,
     typeKeys: keys,
     created: created.map((n) => ({
       id: n.id,
       type: n.type,
       targetRoles: n.targetRoles,
     })),
-    visibleToSession: (await listFor(session.role)).length,
+    visibleToSession: (await listFor(session.role, undefined, session.restaurantId)).length,
   });
 }

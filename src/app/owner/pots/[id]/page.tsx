@@ -6,6 +6,8 @@ import { buildPotView, describeRuleValue, STATUS_LABEL } from "@/server/modules/
 import { formatINR } from "@/server/modules/pots/money";
 import { DEMO_BUSINESS_ID } from "@/server/modules/pots/runtime";
 import { movePotAction } from "@/server/modules/pots/money-actions";
+import { LiquidGlassPot } from "@/components/pots/LiquidGlassPot";
+import { PotSimulator } from "@/components/pots/PotSimulator";
 import { Notice, Field, inputCls, btnCls, btnMuted } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +20,8 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
   const v = buildPotView(rt, id);
   if (!v) notFound();
   const { card } = v;
+  const latest = v.transactions.reduce<(typeof v.transactions)[number] | null>((a, t) => (!a || t.at.getTime() > a.at.getTime() ? t : a), null);
+  const totalHeld = rt.pots.reduce((s, p) => s + rt.ledger.potBalance(DEMO_BUSINESS_ID, p.id), 0);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -48,6 +52,29 @@ export default async function FinancialPotDetailPage({ params, searchParams }: {
           {card.progressPercent !== undefined && <p className="mt-1 text-xs text-zinc-500">{card.progressPercent}% reached</p>}
         </div>
       </div>
+
+      <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
+        <div className="grid items-center gap-6 md:grid-cols-[240px_1fr]">
+          <LiquidGlassPot
+            name={card.pot.name}
+            availablePaise={card.balance}
+            limitPaise={card.targetPaise}
+            shareBasisPaise={totalHeld}
+            allocatedPaise={card.allocatedThisMonth}
+            size="lg"
+            focusable
+            toggleOnClick
+            recentDelta={latest ? { paise: latest.amount, label: "Last transaction" } : null}
+          />
+          <PotSimulator
+            name={card.pot.name}
+            availablePaise={card.balance}
+            limitPaise={card.targetPaise}
+            shareBasisPaise={totalHeld}
+            allocatedPaise={card.allocatedThisMonth}
+          />
+        </div>
+      </section>
 
       <section className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <div className="flex items-center justify-between">

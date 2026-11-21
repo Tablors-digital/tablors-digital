@@ -35,3 +35,39 @@ export function getPotStatus(pot: FinancialPot): PotStatusInfo {
 
   return { remainingRupees, usedPercent, label, colorClass };
 }
+
+/* ------------------------------------------------------------------ */
+/* Liquid-jar fill status (remaining-balance based)                    */
+/* ------------------------------------------------------------------ */
+
+/** Pure and unit-agnostic (paise or rupees), so it is safe to import from client components. */
+export type FillState = "safe" | "monitor" | "alert" | "empty" | "unset";
+
+/** Remaining-balance bands: > safeAbove = safe; monitorFrom..safeAbove = monitor; below monitorFrom = alert. */
+export const FILL_THRESHOLDS = { safeAbove: 50, monitorFrom: 15 } as const;
+
+export const FILL_LABEL: Record<FillState, string> = {
+  safe: "Safe Zone",
+  monitor: "Monitor",
+  alert: "Alert",
+  empty: "Empty",
+  unset: "No limit set",
+};
+
+export interface FillStatusInfo {
+  state: FillState;
+  label: string;
+  /** available / limit * 100, clamped 0..100. null when there is no limit to compare against. */
+  remainingPercent: number | null;
+}
+
+export function getFillStatus(available: number, limit?: number | null): FillStatusInfo {
+  const done = (state: FillState, remainingPercent: number | null): FillStatusInfo => ({ state, label: FILL_LABEL[state], remainingPercent });
+  if (!(available > 0)) return done("empty", 0); // zero, negative or NaN: never any liquid
+  if (limit === undefined || limit === null || !(limit > 0)) return done("unset", null);
+  const raw = (available / limit) * 100;
+  const pct = Math.min(100, Math.max(0, raw));
+  if (raw > FILL_THRESHOLDS.safeAbove) return done("safe", pct);
+  if (raw >= FILL_THRESHOLDS.monitorFrom) return done("monitor", pct);
+  return done("alert", pct);
+}

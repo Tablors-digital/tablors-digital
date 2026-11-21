@@ -11,20 +11,22 @@ const stamp = (mode: TimeMode, t: number) => (mode === "day" ? fmtDate(t) : mode
 
 /** Round-number y ticks (0-based when all values are >= 0). */
 function niceTicks(min: number, max: number, count = 4): number[] {
-  if (max === min) return [min];
+  if (max === min) return [Math.round(min)];
   const raw = (max - min) / count;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const step = ([1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? raw);
   const start = Math.floor(min / step) * step;
-  const out: number[] = [];
-  for (let v = start; v <= max + step * 0.999; v += step) out.push(Math.round(v));
-  return out;
+  const seen = new Set<number>();
+  for (let v = start; v <= max + step * 0.999; v += step) {
+    seen.add(Math.round(v));
+  }
+  return Array.from(seen);
 }
 
 /**
- * Interactive area/line chart. Hover (or arrow keys) shows the exact amount and time of a real ledger
- * point. `step` draws balances as step-after lines; buckets (sales per day/hour) use smooth segments.
- * With fewer than 2 points it shows the empty state instead of a fabricated curve.
+- Interactive area/line chart. Hover (or arrow keys) shows the exact amount and time of a real ledger
+- point. `step` draws balances as step-after lines; buckets (sales per day/hour) use smooth segments.
+- With fewer than 2 points it shows the empty state instead of a fabricated curve.
  */
 export function AreaChart({ points, tone, mode, step = false, height = 260, emptyTitle, emptyHint, valueLabel = "Balance" }: {
   points: ChartPoint[]; tone: ToneKey; mode: TimeMode; step?: boolean; height?: number; emptyTitle: string; emptyHint?: string; valueLabel?: string;
@@ -35,8 +37,9 @@ export function AreaChart({ points, tone, mode, step = false, height = 260, empt
   const [hover, setHover] = useState<number | null>(null);
   useEffect(() => {
     const el = box.current; if (!el) return;
+    // ResizeObserver fires once as soon as observation starts, so no separate synchronous setW is needed.
     const ro = new ResizeObserver(() => setW(Math.max(280, Math.floor(el.clientWidth))));
-    ro.observe(el); setW(Math.max(280, Math.floor(el.clientWidth)));
+    ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
@@ -93,8 +96,8 @@ export function AreaChart({ points, tone, mode, step = false, height = 260, empt
         <defs>
           <linearGradient id={`a${id}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={colour} stopOpacity="0.30" /><stop offset="100%" stopColor={colour} stopOpacity="0" /></linearGradient>
         </defs>
-        {ticks.map((tv) => (
-          <g key={tv}>
+        {ticks.map((tv, i) => (
+          <g key={`${i}-${tv}`}>
             <line x1={M.l} x2={w - M.r} y1={y(tv)} y2={y(tv)} stroke="#262b33" strokeDasharray="3 5" />
             <text x={M.l - 8} y={y(tv) + 3.5} textAnchor="end" fontSize="10" fill="#6b7280">{compactINR(tv)}</text>
           </g>
@@ -128,7 +131,6 @@ export interface DonutSlice { key: string; label: string; value: number; percent
 export function DonutChart({ slices, total, centreLabel = "Held in total" }: { slices: DonutSlice[]; total: number; centreLabel?: string }) {
   const [active, setActive] = useState<string | null>(null);
   const R = 70, C = 2 * Math.PI * R, GAP = slices.length > 1 ? 2.2 : 0;
-  let offset = 0;
   const shown = active ? slices.find((s) => s.key === active) : null;
 
   if (slices.length === 0 || total <= 0) {
@@ -140,22 +142,27 @@ export function DonutChart({ slices, total, centreLabel = "Held in total" }: { s
       </div>
     );
   }
+
+  // Start offset of each slice, computed up front so nothing is mutated while rendering.
+  const starts = slices.reduce<number[]>((acc, _s, i) => {
+    acc.push(i === 0 ? 0 : acc[i - 1]! + (slices[i - 1]!.percent / 100) * C);
+    return acc;
+  }, []);
+
   return (
     <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
       <div className="relative shrink-0">
         <svg width="190" height="190" viewBox="0 0 180 180" role="img" aria-label="Allocation of settled money across pots" style={{ filter: "drop-shadow(0 0 18px rgba(212,175,55,0.12))" }}>
           <circle cx="90" cy="90" r={R} fill="none" stroke="#161a21" strokeWidth="18" />
           <g transform="rotate(-90 90 90)">
-            {slices.map((s) => {
+            {slices.map((s, i) => {
               const len = Math.max(0, (s.percent / 100) * C - GAP);
-              const el = (
+              return (
                 <circle key={s.key} cx="90" cy="90" r={R} fill="none" stroke={s.colour} strokeWidth={active === s.key ? 22 : 18}
-                  strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset} opacity={active && active !== s.key ? 0.35 : 1}
+                  strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-starts[i]!} opacity={active && active !== s.key ? 0.35 : 1}
                   style={{ transition: "stroke-width .15s, opacity .15s", cursor: "pointer" }}
                   onMouseEnter={() => setActive(s.key)} onMouseLeave={() => setActive(null)} />
               );
-              offset += (s.percent / 100) * C;
-              return el;
             })}
           </g>
         </svg>

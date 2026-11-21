@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { demoRequestSchema } from "./schema";
 import { checkRateLimit } from "./rate-limit";
 import { recordLeadDb } from "@/server/modules/data/devices-db";
@@ -12,6 +12,15 @@ export type SubmitDemoRequestState =
   | { status: "error"; message: string; fieldErrors?: Record<string, string> }
   | { status: "rate_limited"; message: string };
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 async function sendLeadNotifications(lead: {
   restaurantName: string;
   fullName: string;
@@ -21,9 +30,13 @@ async function sendLeadNotifications(lead: {
   tableCount: number;
   restaurantType?: string;
 }) {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-  const notifyTo = process.env.DEMO_NOTIFY_EMAIL || "tablor.digital@gmail.com";
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const notifyTo =
+    process.env.DEMO_NOTIFY_EMAIL ||
+    process.env.DEMO_TO_EMAIL ||
+    "tablor.digital@gmail.com";
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL || "Tablor's Demo Leads <onboarding@resend.dev>";
 
   const summaryLines = [
     `New Tablor's Demo Request`,
@@ -40,17 +53,11 @@ async function sendLeadNotifications(lead: {
   ];
   const textBody = summaryLines.join("\n");
 
-  if (gmailUser && gmailPass) {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: gmailUser,
-        pass: gmailPass.replace(/\s+/g, ""),
-      },
-    });
+  if (resendApiKey) {
+    const resend = new Resend(resendApiKey);
 
-    await transporter.sendMail({
-      from: `"Tablor's Demo Leads" <${gmailUser}>`,
+    const { error } = await resend.emails.send({
+      from: fromEmail,
       to: notifyTo,
       subject: `Demo Request: ${lead.restaurantName} (${lead.fullName})`,
       text: textBody,
@@ -58,17 +65,21 @@ async function sendLeadNotifications(lead: {
         <div style="font-family:sans-serif;max-width:520px;padding:20px;border:1px solid #e5e7eb;border-radius:12px;">
           <h2 style="margin:0 0 12px;color:#111827;">New Demo Request — Tablor's</h2>
           <table style="width:100%;border-collapse:collapse;font-size:14px;">
-            <tr><td style="padding:6px 0;color:#6b7280;">Full Name</td><td style="padding:6px 0;font-weight:600;">${lead.fullName}</td></tr>
-            <tr><td style="padding:6px 0;color:#6b7280;">Restaurant</td><td style="padding:6px 0;font-weight:600;">${lead.restaurantName}</td></tr>
-            <tr><td style="padding:6px 0;color:#6b7280;">Phone / WhatsApp</td><td style="padding:6px 0;font-weight:600;"><a href="https://wa.me/${lead.phone.replace(/\D/g, "")}">${lead.phone}</a></td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Full Name</td><td style="padding:6px 0;font-weight:600;">${escapeHtml(lead.fullName)}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Restaurant</td><td style="padding:6px 0;font-weight:600;">${escapeHtml(lead.restaurantName)}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Phone / WhatsApp</td><td style="padding:6px 0;font-weight:600;"><a href="https://wa.me/${lead.phone.replace(/\D/g, "")}">${escapeHtml(lead.phone)}</a></td></tr>
             <tr><td style="padding:6px 0;color:#6b7280;">Tables</td><td style="padding:6px 0;font-weight:600;">${lead.tableCount}</td></tr>
-            ${lead.restaurantType && lead.restaurantType !== "Other" ? `<tr><td style="padding:6px 0;color:#6b7280;">Venue Type</td><td style="padding:6px 0;">${lead.restaurantType}</td></tr>` : ""}
+            ${lead.restaurantType && lead.restaurantType !== "Other" ? `<tr><td style="padding:6px 0;color:#6b7280;">Venue Type</td><td style="padding:6px 0;">${escapeHtml(lead.restaurantType)}</td></tr>` : ""}
           </table>
         </div>
       `,
     });
+
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
   } else {
-    console.warn("[leads] GMAIL_USER / GMAIL_APP_PASSWORD not set — skipped email send");
+    console.warn("[leads] RESEND_API_KEY not set — skipped email send");
   }
 
   const waPhone = process.env.CALLMEBOT_PHONE;

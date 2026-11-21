@@ -6,8 +6,8 @@ import { db } from "@/server/db/client";
 import { appDocuments } from "@/server/db/schema";
 
 /**
- * Per-restaurant JSON documents in PostgreSQL (table `app_documents`),
- * used by the smaller modules instead of process memory.
+- Per-restaurant JSON documents in PostgreSQL (table `app_documents`),
+- used by the smaller modules instead of process memory.
  */
 
 export async function getDoc<T>(
@@ -83,9 +83,9 @@ export async function deleteDoc(
 }
 
 /**
- * Inserts a document only if that id is free (INSERT ... ON CONFLICT DO NOTHING).
- * Returns false when the id already exists, so callers can pick another one.
- * Unlike putDoc it never overwrites, which makes generated ids genuinely unique.
+- Inserts a document only if that id is free (INSERT ... ON CONFLICT DO NOTHING).
+- Returns false when the id already exists, so callers can pick another one.
+- Unlike putDoc it never overwrites, which makes generated ids genuinely unique.
  */
 export async function insertDocIfAbsent<T>(
   restaurantId: string,

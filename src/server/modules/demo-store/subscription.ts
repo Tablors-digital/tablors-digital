@@ -1,13 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { getDoc, putDoc } from "@/server/modules/data/documents";
-
-/**
- * DEMO subscription store (in-memory).
- * PLAN PRICES / DEVICE LIMITS BELOW ARE PLACEHOLDERS - move them to config/DB
- * once pricing is confirmed (see lib/config.ts rule: no hardcoded pricing).
- * Real payments need a gateway (Razorpay etc.); nothing here charges money.
- */
 
 export type PlanId = "starter" | "professional" | "enterprise";
 
@@ -17,7 +11,7 @@ export const PLANS: Record<PlanId, { name: string; monthlyRupees: number; device
   enterprise: { name: "Enterprise", monthlyRupees: 1999, deviceLimit: 100 },
 };
 export const PLAN_ORDER: PlanId[] = ["starter", "professional", "enterprise"];
-export const EXTRA_DEVICE_RUPEES = 30; // placeholder per extra device / month
+export const EXTRA_DEVICE_RUPEES = 30;
 
 export interface PaymentRecord {
   id: string;
@@ -31,84 +25,90 @@ export interface PaymentRecord {
 export interface Subscription {
   restaurantId: string;
   plan: PlanId;
-  renewalDate: string; // ISO
+  renewalDate: string;
   extraDevices: number;
   payments: PaymentRecord[];
 }
 
-function seed(restaurantId: string): Subscription {
-  return {
-    restaurantId,
-    plan: "professional",
-    renewalDate: new Date("2026-09-17T00:00:00+05:30").toISOString(),
-    extraDevices: 0,
-    payments: [
-      { id: "pay_1", invoiceNo: "INV-2026-0008", paidAt: new Date("2026-08-17T10:00:00+05:30").toISOString(), description: "Professional plan - monthly", amountRupees: 999, status: "paid" },
-      { id: "pay_2", invoiceNo: "INV-2026-0007", paidAt: new Date("2026-07-17T10:00:00+05:30").toISOString(), description: "Professional plan - monthly", amountRupees: 999, status: "paid" },
-    ],
-  };
+export function monthlyRupees(sub: Pick<Subscription, "plan" | "extraDevices">): number {
+  return PLANS[sub.plan].monthlyRupees + sub.extraDevices * EXTRA_DEVICE_RUPEES;
+}
+
+export function deviceLimit(sub: Pick<Subscription, "plan" | "extraDevices">): number {
+  return PLANS[sub.plan].deviceLimit + sub.extraDevices;
 }
 
 const COLLECTION = "subscription";
-const ID = "current";
+const DOC_ID = "current";
 
-async function load(restaurantId: string): Promise<Subscription> {
-  const stored = await getDoc<Subscription>(restaurantId, COLLECTION, ID);
-  return stored ?? seed(restaurantId);
-}
-
-async function save(s: Subscription): Promise<void> {
-  await putDoc(s.restaurantId, COLLECTION, ID, s);
+function seed(restaurantId: string): Subscription {
+  const nextMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    restaurantId,
+    plan: "professional",
+    renewalDate: nextMonth,
+    extraDevices: 0,
+    payments: [],
+  };
 }
 
 export async function getSubscription(restaurantId: string): Promise<Subscription> {
-  const s = await load(restaurantId);
-  return { ...s, payments: [...s.payments] };
+  const existing = await getDoc<Subscription>(restaurantId, COLLECTION, DOC_ID);
+  if (existing) return existing;
+  const fresh = seed(restaurantId);
+  await putDoc(restaurantId, COLLECTION, DOC_ID, fresh);
+  return fresh;
 }
 
-export function deviceLimit(s: Subscription): number {
-  return PLANS[s.plan].deviceLimit + s.extraDevices;
-}
-export function monthlyRupees(s: Subscription): number {
-  return PLANS[s.plan].monthlyRupees + s.extraDevices * EXTRA_DEVICE_RUPEES;
-}
-
-function record(s: Subscription, description: string, amountRupees: number) {
-  const n = s.payments.length + 8; // demo invoice counter
-  s.payments.unshift({
-    id: `pay_${crypto.randomUUID()}`,
-    invoiceNo: `INV-2026-${String(n).padStart(4, "0")}`,
-    paidAt: new Date().toISOString(),
-    description,
-    amountRupees,
-    status: "paid",
-  });
-}
-
-export async function changePlan(restaurantId: string, plan: PlanId, devicesInUse: number): Promise<string | null> {
-  const s = await load(restaurantId);
-  if (s.plan === plan) return "You are already on that plan.";
-  if (PLANS[plan].deviceLimit + s.extraDevices < devicesInUse) {
-    return `You have ${devicesInUse} devices; that plan allows ${PLANS[plan].deviceLimit + s.extraDevices}. Remove devices first.`;
+export async function changePlan(
+  restaurantId: string,
+  plan: PlanId,
+  activeDevices: number,
+): Promise<string | null> {
+  const sub = await getSubscription(restaurantId);
+  const limit = deviceLimit({ plan, extraDevices: sub.extraDevices });
+  if (activeDevices > limit) {
+    return `You have ${activeDevices} active devices, which exceeds the ${PLANS[plan].name} limit of ${limit}.`;
   }
-  s.plan = plan;
-  await save(s);
+  sub.plan = plan;
+  await putDoc(restaurantId, COLLECTION, DOC_ID, sub);
   return null;
 }
 
-export async function renew(restaurantId: string): Promise<void> {
-  const s = await load(restaurantId);
-  const base = Math.max(new Date(s.renewalDate).getTime(), Date.now());
-  const next = new Date(base);
-  next.setMonth(next.getMonth() + 1);
-  s.renewalDate = next.toISOString();
-  record(s, `${PLANS[s.plan].name} plan - monthly renewal`, monthlyRupees(s));
-  await save(s);
+export async function renewSubscription(restaurantId: string): Promise<PaymentRecord> {
+  const sub = await getSubscription(restaurantId);
+  const planInfo = PLANS[sub.plan];
+  const amountRupees = monthlyRupees(sub);
+  const baseDate = Math.max(Date.now(), Date.parse(sub.renewalDate) || Date.now());
+  sub.renewalDate = new Date(baseDate + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const record: PaymentRecord = {
+    id: `sub_${randomUUID().slice(0, 8)}`,
+    invoiceNo: `INV-${new Date().getFullYear()}-${String(sub.payments.length + 1).padStart(4, "0")}`,
+    paidAt: new Date().toISOString(),
+    description: `${planInfo.name} Plan Renewal${sub.extraDevices > 0 ? ` + ${sub.extraDevices} extra devices` : ""}`,
+    amountRupees,
+    status: "paid",
+  };
+  sub.payments = [record, ...sub.payments];
+  await putDoc(restaurantId, COLLECTION, DOC_ID, sub);
+  return record;
 }
 
-export async function addDevices(restaurantId: string, count: number): Promise<void> {
-  const s = await load(restaurantId);
-  s.extraDevices += count;
-  record(s, `Add ${count} device${count > 1 ? "s" : ""}`, count * EXTRA_DEVICE_RUPEES);
-  await save(s);
+export async function addExtraDevices(restaurantId: string, count: number): Promise<PaymentRecord> {
+  const sub = await getSubscription(restaurantId);
+  const amountRupees = count * EXTRA_DEVICE_RUPEES;
+  sub.extraDevices += count;
+
+  const record: PaymentRecord = {
+    id: `dev_${randomUUID().slice(0, 8)}`,
+    invoiceNo: `INV-${new Date().getFullYear()}-${String(sub.payments.length + 1).padStart(4, "0")}`,
+    paidAt: new Date().toISOString(),
+    description: `Add ${count} extra device slot${count === 1 ? "" : "s"}`,
+    amountRupees,
+    status: "paid",
+  };
+  sub.payments = [record, ...sub.payments];
+  await putDoc(restaurantId, COLLECTION, DOC_ID, sub);
+  return record;
 }

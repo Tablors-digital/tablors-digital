@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 import {
   DEMO_RESTAURANT_ID,
@@ -12,63 +11,40 @@ import {
   removeTableDb,
 } from "@/server/modules/data/tables-db";
 
-export async function createTableAction(
-  formData: FormData
-): Promise<void> {
-  const role = await getDemoRole();
+function readString(formData: FormData, key: string): string {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
 
-  // Only the restaurant owner can create tables.
-  if (role !== "owner") {
-    return;
-  }
-
-  const value = formData.get("label");
-
-  const label =
-    typeof value === "string"
-      ? value.trim()
-      : "";
-
-  const result = await createTableDb(DEMO_RESTAURANT_ID, label);
-
-  if (!result.ok) {
-    return;
-  }
-
+function revalidateTables() {
   revalidatePath("/owner/tables");
   revalidatePath("/owner");
 }
 
-export async function removeTableAction(
-  formData: FormData
-): Promise<void> {
+export async function createTableAction(formData: FormData): Promise<void> {
+  // Only the restaurant owner can create tables.
   const role = await getDemoRole();
+  if (role !== "owner") return;
 
+  const label = readString(formData, "label");
+  if (!label) return;
+
+  const result = await createTableDb(DEMO_RESTAURANT_ID, label);
+  if (!result.ok) return;
+
+  revalidateTables();
+}
+
+export async function removeTableAction(formData: FormData): Promise<void> {
   // Only the restaurant owner can remove tables.
-  if (role !== "owner") {
-    return;
-  }
+  const role = await getDemoRole();
+  if (role !== "owner") return;
 
-  const value = formData.get("tableId");
-
-  const tableId =
-    typeof value === "string"
-      ? value.trim()
-      : "";
-
-  if (!tableId) {
-    return;
-  }
+  const tableId = readString(formData, "tableId");
+  if (!tableId) return;
 
   const result = await removeTableDb(DEMO_RESTAURANT_ID, tableId);
+  if (!result.ok) return;
 
-  if (!result.ok) {
-    return;
-  }
-
-  revalidatePath("/owner/tables");
-  revalidatePath("/owner");
-
-  // redirect() throws internally, so it must be the last statement.
-  redirect("/owner/tables");
+  revalidateTables();
 }

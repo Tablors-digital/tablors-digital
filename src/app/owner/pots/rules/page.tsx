@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getPotsRuntime } from "@/server/modules/pots/runtime";
+import { ensurePotsRuntime } from "@/server/modules/pots/runtime";
 import { buildRulesView } from "@/server/modules/pots/views";
 import { publishRuleAction } from "@/server/modules/pots/rule-actions";
 import { formatINR } from "@/server/modules/pots/money";
@@ -26,7 +26,7 @@ const labelCls = "block text-xs font-medium uppercase tracking-wider text-zinc-4
 
 export default async function RulesPage({ searchParams }: { searchParams: Promise<{ notice?: string; edit?: string }> }) {
   const { notice, edit } = await searchParams;
-  const v = buildRulesView(getPotsRuntime());
+  const v = buildRulesView(await ensurePotsRuntime());
   const editing = edit ? v.rules.find((r) => r.rule.ruleKey === edit)?.rule : undefined;
   const n = notice ? NOTICES[notice] ?? (notice.startsWith("rule-error:") ? { text: notice.slice(11) } : undefined) : undefined;
   const pctOrRupees = (m: string, val: number) => (m === "PERCENTAGE" ? String(val / 100) : m === "REMAINING" ? "" : String(val / 100));
