@@ -3,7 +3,7 @@ import { db } from "@/server/db/client";
 import { bills, payments } from "@/server/db/schema";
 import type { Bill } from "@/server/modules/demo-store/store";
 import { listPaymentsDb } from "@/server/modules/billing/db-billing";
-import { ensurePotsRuntime } from "@/server/modules/pots/runtime";
+import { DEMO_BUSINESS_ID, ensurePotsRuntime, type PotsRuntime } from "@/server/modules/pots/runtime";
 import { settleLoyaltyForBillDb, reverseLoyaltyForRefundDb } from "@/server/modules/loyalty-db/db-loyalty";
 import { notify } from "@/server/modules/notifications/store";
 
@@ -50,6 +50,34 @@ async function resolveRefundRestaurantId(paymentId: string, billId?: string): Pr
   return row?.restaurantId ?? null;
 }
 
+async function resolvePotsTarget(
+  restaurantId: string,
+  providerRef?: string,
+): Promise<{ rt: PotsRuntime; businessId: string }> {
+  const candidates = Array.from(
+    new Set([restaurantId, DEMO_BUSINESS_ID].filter((id): id is string => Boolean(id))),
+  );
+
+  if (providerRef) {
+    for (const id of candidates) {
+      const candidateRt = await ensurePotsRuntime(id);
+      if (candidateRt.payments.getPayment(providerRef, id)) {
+        return { rt: candidateRt, businessId: id };
+      }
+    }
+  }
+
+  for (const id of candidates) {
+    const candidateRt = await ensurePotsRuntime(id);
+    if (candidateRt.registry.forBusiness(id).length > 0) {
+      return { rt: candidateRt, businessId: id };
+    }
+  }
+
+  const fallbackId = DEMO_BUSINESS_ID || restaurantId;
+  return { rt: await ensurePotsRuntime(fallbackId), businessId: fallbackId };
+}
+
 export async function onBillPaymentConfirmed(
   billId: string,
   method: NonNullable<Bill["paymentMethod"]>,
@@ -79,22 +107,22 @@ export async function onBillPaymentConfirmed(
     console.error("[loyalty] settle failed for bill", billId, error);
   }
 
-  const rt = await ensurePotsRuntime(restaurantId);
+  const { rt, businessId } = await resolvePotsTarget(restaurantId);
   const at = new Date();
   for (const raw of await listPaymentsDb(restaurantId)) {
     const p = readStorePayment(raw);
     if (!p || p.billId !== billId) continue;
     const result = rt.payments.handleEvent({
-      providerEventId: `pay:${restaurantId}:${p.id}:success`,
+      providerEventId: `pay:${businessId}:${p.id}:success`,
       providerRef: p.id,
-      businessId: restaurantId,
+      businessId,
       billId,
       amount: rupeesToPaise(p.amountRupees),
       status: "SUCCESS",
       at,
     });
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[pots] restaurant ${restaurantId} bill ${billId} payment ${p.id} (${method}): ${result.outcome}`);
+      console.log(`[pots] business ${businessId} (restaurant ${restaurantId}) bill ${billId} payment ${p.id} (${method}): ${result.outcome}`);
     }
   }
 }
@@ -120,7 +148,7 @@ export async function onPaymentRefunded(input: {
     );
   }
 
-  const rt = await ensurePotsRuntime(restaurantId);
+  const { rt } = await resolvePotsTarget(restaurantId, input.paymentId);
   try {
     const res = rt.payments.refund({
       refundId: input.refundId,

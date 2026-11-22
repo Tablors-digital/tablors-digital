@@ -31,8 +31,6 @@ export async function publishRuleAction(formData: FormData): Promise<void> {
   const stepUpVerified = await getPotsPinVerified();
   if (!stepUpVerified) return back("step-up-required");
 
-  const restaurantId = session.restaurantId || DEMO_BUSINESS_ID;
-
   const ruleKey = text(formData, "ruleKey").toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(ruleKey)) return back("invalid-rule-key");
   const potId = text(formData, "potId");
@@ -41,7 +39,22 @@ export async function publishRuleAction(formData: FormData): Promise<void> {
   const reason = text(formData, "reason");
   if (!reason) return back("reason-required");
 
-  const rt = await ensurePotsRuntime(restaurantId);
+  const candidateIds = Array.from(
+    new Set([session.restaurantId, DEMO_BUSINESS_ID].filter((id): id is string => Boolean(id))),
+  );
+
+  let rt = await ensurePotsRuntime(DEMO_BUSINESS_ID);
+  let businessId = DEMO_BUSINESS_ID;
+
+  for (const id of candidateIds) {
+    const candidateRt = await ensurePotsRuntime(id);
+    if (candidateRt.potIds.includes(potId)) {
+      rt = candidateRt;
+      businessId = id;
+      break;
+    }
+  }
+
   if (!rt.potIds.includes(potId)) return back("invalid-pot");
 
   const valueRaw = num(formData, "value");
@@ -69,7 +82,7 @@ export async function publishRuleAction(formData: FormData): Promise<void> {
   };
 
   try {
-    rt.registry.publish(restaurantId, input, { id: "owner", role: "OWNER" }, { stepUpVerified, reason, at: new Date() });
+    rt.registry.publish(businessId, input, { id: "owner", role: "OWNER" }, { stepUpVerified, reason, at: new Date() });
   } catch (e) {
     if (e instanceof RuleChangeError) return back(`rule-error:${e.message}`);
     if (e instanceof PermissionError) return back("forbidden");
