@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, Banknote, CalendarClock, Download, FileText, Landmark, ListChecks, Minus, PiggyBank, Plus, Send, SlidersHorizontal, ShieldCheck } from "lucide-react";
-import { DEMO_BUSINESS_ID as B, getPotsRuntime } from "@/server/modules/pots/runtime";
+import { DEMO_BUSINESS_ID as B, ensurePotsRuntime } from "@/server/modules/pots/runtime";
 import { buildGstView } from "@/server/modules/pots/reports";
 import { buildGstAnalytics, parseRange } from "@/server/modules/pots/analytics";
 import { gstAdjustAction, taxTransferAction } from "@/server/modules/pots/money-actions";
@@ -20,7 +20,7 @@ const submitCls = "w-full rounded-xl px-4 py-2.5 text-sm font-bold text-black tr
 export default async function GstPage({ searchParams }: { searchParams: Promise<{ notice?: string; m?: string; range?: string }> }) {
   const { notice, m, range: r } = await searchParams;
   const range = parseRange(r);
-  const rt = getPotsRuntime();
+  const rt = await ensurePotsRuntime(B);
   const v = buildGstView(rt, m);
   const a = buildGstAnalytics(rt, range);
   if (!v || !a) return <div className="space-y-4"><Link href="/owner/pots" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200"><ArrowLeft className="h-4 w-4" /> Back to Pots</Link><p className="text-sm text-zinc-400">No GST Pot configured.</p></div>;

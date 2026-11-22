@@ -30,6 +30,7 @@ import {
   generateCustomerBill,
   getCustomerOrderState,
   identifyLoyaltyMember,
+  redeemCustomPointsForBill,
   redeemLoyaltyReward,
   removeLoyaltyReward,
   type CustomerBillState,
@@ -544,18 +545,37 @@ export function TablorDevice({
     }
 
     // Member identified and points typed: apply that reward, then show the payment QR at once.
+    // Member identified and points typed: redeem matching preset reward or custom points, then show QR.
     const l = loyaltyState?.loyalty;
     if (l && l.enabled && l.identified && billRedeem.trim() !== "") {
+      const text = billRedeem.trim();
+      const pts = Number(text);
+      if (!/^\d+$/.test(text) || pts <= 0) {
+        showNotice("error", "Enter the points as a whole number.");
+        return;
+      }
+
       const pick = findRewardByPoints(l.rewards, billRedeem);
-      if (!pick.ok) {
+      if (pick.ok) {
+        const res = await loyaltyHandlers.redeem(pick.rewardId);
+        if (!res.ok) {
+          showNotice("error", res.message ?? "Couldn't apply that reward.");
+          return;
+        }
+      } else if (loyaltyState?.billId) {
+        const customRes = await redeemCustomPointsForBill(loyaltyState.billId, pts);
+        if (!customRes.ok) {
+          showNotice("error", customRes.message ?? "Couldn't redeem those points.");
+          return;
+        }
+        const fresh = await getCustomerOrderState(tableId, orderId!);
+        if (fresh.ok && fresh.bill) setLoyaltyState(fresh.bill);
+        await refresh();
+      } else {
         showNotice("error", pick.message);
         return;
       }
-      const res = await loyaltyHandlers.redeem(pick.rewardId);
-      if (!res.ok) {
-        showNotice("error", res.message ?? "Couldn't apply that reward.");
-        return;
-      }
+
       setBillRedeem("");
       await handleQrGen();
       return;

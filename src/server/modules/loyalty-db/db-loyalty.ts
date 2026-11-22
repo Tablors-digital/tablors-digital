@@ -29,15 +29,6 @@ import {
   type RewardType,
 } from "./engine";
 
-/**
- * Loyalty ledger on PostgreSQL. Points are NOT money: nothing here touches
- * bills' money movements or the Pots ledger except the redemption discount,
- * which lowers the amount the customer must pay.
- *
- * The ledger is append-only (balance = SUM(points)); every earn / redeem /
- * reversal carries a unique idempotency key, so replays cannot double-credit.
- */
-
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
 
@@ -71,7 +62,6 @@ export async function saveLoyaltySettingsDb(restaurantId: string, s: LoyaltySett
 
 // ---- customers & balances ----------------------------------------------------
 
-/** Finds a member by normalized number, also matching older rows saved with spaces or +91. */
 export async function findCustomerByPhoneDb(restaurantId: string, rawPhone: unknown, exec: DbOrTx = db) {
   const phone = normalizePhone(rawPhone);
   if (!phone) return null;
@@ -95,7 +85,6 @@ export async function findCustomerByPhoneDb(restaurantId: string, rawPhone: unkn
   return legacy ?? null;
 }
 
-/** Creates a member only when no normalized match exists. */
 export async function findOrCreateCustomerDb(restaurantId: string, rawPhone: unknown) {
   const phone = normalizePhone(rawPhone);
   if (!phone) return null;
@@ -116,8 +105,6 @@ export async function getBalanceDb(restaurantId: string, customerId: string, exe
     .from(loyaltyTransactions)
     .where(and(eq(loyaltyTransactions.restaurantId, restaurantId), eq(loyaltyTransactions.customerId, customerId)));
 
-  // Redemptions are now deducted in the ledger the moment they are applied.
-  // Only holds created before that change (no ledger row yet) still reserve points.
   const heldRows = await exec
     .select({ id: loyaltyRedemptions.id, points: loyaltyRedemptions.points })
     .from(loyaltyRedemptions)
@@ -196,11 +183,6 @@ export async function setRewardActiveDb(restaurantId: string, id: string, active
     .where(and(eq(loyaltyRewards.id, id), eq(loyaltyRewards.restaurantId, restaurantId)));
 }
 
-/**
- * Deletes a reward only when nothing has ever been redeemed with it, so past
- * redemptions and the ledger keep pointing at a real reward. Otherwise the
- * owner should deactivate it instead.
- */
 export async function deleteRewardDb(
   restaurantId: string,
   id: string
@@ -451,8 +433,6 @@ export async function holdRedemptionDb(
     const [link] = await tx.select().from(loyaltyBillLinks).where(eq(loyaltyBillLinks.billId, billId));
     if (!link) return { ok: false, message: "Enter your mobile number first." };
 
-    // Row lock on the member: every redeem / adjust / reversal for this number
-    // queues here, so two devices can never spend the same points.
     const [customer] = await tx
       .select()
       .from(loyaltyCustomers)
@@ -491,14 +471,13 @@ export async function holdRedemptionDb(
         billId,
         points: reward.pointsCost,
         discountPaise,
-        status: "held", // reward is attached to the bill; points are already deducted below
+        status: "held",
         code: redemptionCode(),
       });
     } catch {
       return { ok: false, message: "A reward is already applied to this bill." };
     }
 
-    // Immediate deduction, in the same transaction as the redemption.
     await tx
       .insert(loyaltyTransactions)
       .values({
@@ -528,6 +507,133 @@ export async function holdRedemptionDb(
   });
 }
 
+export async function holdCustomPointsRedemptionByBillDb(
+  restaurantId: string,
+  billId: string,
+  pointsToUse: number,
+  rupeeValuePerPoint = 0.25,
+): Promise<LoyaltyActionResult> {
+  const settings = await getLoyaltySettingsDb(restaurantId);
+  if (!settings.enabled) return { ok: false, message: "The loyalty program is switched off." };
+
+  const pts = Math.floor(pointsToUse);
+  if (!Number.isInteger(pts) || pts <= 0) {
+    return { ok: false, message: "Enter a valid number of points greater than zero." };
+  }
+  if (settings.minPointsToRedeem > 0 && pts < settings.minPointsToRedeem) {
+    return { ok: false, message: `Minimum ${settings.minPointsToRedeem} points required to redeem.` };
+  }
+  if (settings.maxPointsPerBill !== null && pts > settings.maxPointsPerBill) {
+    return { ok: false, message: `Maximum ${settings.maxPointsPerBill} points can be redeemed per bill.` };
+  }
+
+  return db.transaction(async (tx): Promise<LoyaltyActionResult> => {
+    const [bill] = await tx
+      .select()
+      .from(bills)
+      .where(and(eq(bills.id, billId), eq(bills.restaurantId, restaurantId)))
+      .for("update");
+    if (!bill) return { ok: false, message: "Bill not found." };
+    if (bill.paidAt) return { ok: false, message: "This bill is already paid." };
+
+    const [anyPayment] = await tx.select({ id: payments.id }).from(payments).where(eq(payments.billId, billId)).limit(1);
+    if (anyPayment) return { ok: false, message: "Payment has already started on this bill." };
+
+    const [link] = await tx.select().from(loyaltyBillLinks).where(eq(loyaltyBillLinks.billId, billId));
+    if (!link) return { ok: false, message: "Enter your mobile number first." };
+
+    const [customer] = await tx
+      .select()
+      .from(loyaltyCustomers)
+      .where(and(eq(loyaltyCustomers.id, link.customerId), eq(loyaltyCustomers.restaurantId, restaurantId)))
+      .for("update");
+    if (!customer || customer.status !== "active") return { ok: false, message: "This loyalty account is unavailable." };
+
+    const [active] = await tx
+      .select()
+      .from(loyaltyRedemptions)
+      .where(and(eq(loyaltyRedemptions.billId, billId), inArray(loyaltyRedemptions.status, ["held", "committed"])));
+    if (active) return { ok: false, message: "A reward or points discount is already applied to this bill." };
+
+    const { available } = await getBalanceDb(restaurantId, customer.id, tx);
+    if (available < pts) return { ok: false, message: `Not enough points (${available} available).` };
+
+    let [customReward] = await tx
+      .select()
+      .from(loyaltyRewards)
+      .where(and(eq(loyaltyRewards.restaurantId, restaurantId), eq(loyaltyRewards.name, "Points discount")))
+      .limit(1);
+    if (!customReward) {
+      const id = randomUUID();
+      await tx.insert(loyaltyRewards).values({
+        id,
+        restaurantId,
+        name: "Points discount",
+        type: "fixed_discount",
+        pointsCost: 1,
+        valuePaise: 0,
+        percent: null,
+        maxDiscountPaise: null,
+        quantity: null,
+        terms: "Custom points redeemed toward bill amount",
+        validFrom: null,
+        validTo: null,
+        active: false,
+      });
+      [customReward] = await tx.select().from(loyaltyRewards).where(eq(loyaltyRewards.id, id));
+    }
+
+    const rawDiscountPaise = Math.round(pts * rupeeValuePerPoint * 100);
+    const discountPaise = Math.max(0, Math.min(rawDiscountPaise, bill.totalPaise));
+    if (discountPaise <= 0) {
+      return { ok: false, message: "Entered points yield ₹0 discount on this bill." };
+    }
+
+    const redemptionId = randomUUID();
+    try {
+      await tx.insert(loyaltyRedemptions).values({
+        id: redemptionId,
+        restaurantId,
+        customerId: customer.id,
+        rewardId: customReward.id,
+        billId,
+        points: pts,
+        discountPaise,
+        status: "held",
+        code: redemptionCode(),
+      });
+    } catch {
+      return { ok: false, message: "A reward is already applied to this bill." };
+    }
+
+    await tx
+      .insert(loyaltyTransactions)
+      .values({
+        id: randomUUID(),
+        restaurantId,
+        customerId: customer.id,
+        type: "REDEEM",
+        points: -pts,
+        sourceId: redemptionId,
+        idempotencyKey: `redeem:${redemptionId}`,
+        reason: `Redeemed ${pts} loyalty points`,
+        actor: SYSTEM,
+      })
+      .onConflictDoNothing();
+
+    await tx
+      .update(bills)
+      .set({
+        discountPaise: bill.discountPaise + discountPaise,
+        totalPaise: bill.totalPaise - discountPaise,
+        updatedAt: new Date(),
+      })
+      .where(eq(bills.id, billId));
+
+    return { ok: true };
+  });
+}
+
 export async function releaseRedemptionDb(
   restaurantId: string,
   tableId: string,
@@ -551,7 +657,6 @@ export async function releaseRedemptionDb(
 
     await tx.update(loyaltyRedemptions).set({ status: "cancelled" }).where(eq(loyaltyRedemptions.id, held.id));
 
-    // Give the points back only if they were actually deducted (older holds never were).
     const [deducted] = await tx
       .select({ id: loyaltyTransactions.id })
       .from(loyaltyTransactions)
@@ -568,7 +673,7 @@ export async function releaseRedemptionDb(
           id: randomUUID(),
           restaurantId,
           customerId: held.customerId,
-          type: "REDEEM", // positive row nets against the deduction, so "redeemed" totals stay correct
+          type: "REDEEM",
           points: held.points,
           sourceId: held.id,
           idempotencyKey: `redeem-refund:${held.id}`,
@@ -596,17 +701,12 @@ export async function releaseRedemptionDb(
 
 export type SettleResult = { customerId: string; phoneMasked: string; earned: number; balance: number } | null;
 
-/**
- * Called once a bill is fully paid. Idempotent: the redemption commit is a
- * status change guarded by its current state, and every ledger row has a
- * unique key, so webhook replays or double calls cannot credit twice.
- */
 export async function settleLoyaltyForBillDb(restaurantId: string, billId: string): Promise<SettleResult> {
   const settings = await getLoyaltySettingsDb(restaurantId);
 
   return db.transaction(async (tx): Promise<SettleResult> => {
     const bill = await loadBill(tx, restaurantId, billId);
-    if (!bill || !bill.paidAt) return null; // never award for unpaid bills
+    if (!bill || !bill.paidAt) return null;
 
     const [link] = await tx.select().from(loyaltyBillLinks).where(eq(loyaltyBillLinks.billId, billId));
     if (!link) return null;
@@ -623,7 +723,6 @@ export async function settleLoyaltyForBillDb(restaurantId: string, billId: strin
         .update(loyaltyRedemptions)
         .set({ status: "committed", committedAt: new Date() })
         .where(eq(loyaltyRedemptions.id, held.id));
-      // No-op for redemptions already deducted at redeem time; still deducts for older holds.
       await tx
         .insert(loyaltyTransactions)
         .values({
@@ -671,7 +770,6 @@ export async function settleLoyaltyForBillDb(restaurantId: string, billId: strin
   });
 }
 
-/** Takes points back, in proportion, after a refund. Safe to call repeatedly. */
 export async function reverseLoyaltyForRefundDb(restaurantId: string, billId: string): Promise<number> {
   return db.transaction(async (tx) => {
     const bill = await loadBill(tx, restaurantId, billId);
@@ -707,8 +805,6 @@ export async function reverseLoyaltyForRefundDb(restaurantId: string, billId: st
     });
     if (delta <= 0) return 0;
 
-    // Lock the member so this cannot race with a redeem, then take back at
-    // most what the customer still has (points never go negative).
     await tx
       .select({ id: loyaltyCustomers.id })
       .from(loyaltyCustomers)
@@ -791,11 +887,6 @@ export async function setCustomerStatusDb(restaurantId: string, customerId: stri
     .where(and(eq(loyaltyCustomers.id, customerId), eq(loyaltyCustomers.restaurantId, restaurantId)));
 }
 
-/**
- * Permanently removes a member and everything tied to them (points history,
- * redemptions, bill links) in one transaction. Refused while a redemption is
- * on hold for an open bill, so a customer mid-payment is never cut off.
- */
 export async function deleteCustomerDb(
   restaurantId: string,
   customerId: string

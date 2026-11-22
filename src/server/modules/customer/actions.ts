@@ -26,6 +26,7 @@ import { closeIntents, getOpenIntent, saveIntent } from "@/server/modules/paymen
 import { formatBillNo, formatOrderNo, tableNumberFromLabel } from "@/lib/order-number";
 import {
   getBillLoyaltyViewDb,
+  holdCustomPointsRedemptionByBillDb,
   holdRedemptionDb,
   identifyCustomerOnBillDb,
   releaseRedemptionDb,
@@ -126,9 +127,6 @@ async function validateCustomerOrder(tableId: string, orderId: string) {
   return { ok: true as const, table, order };
 }
 
-/**
-- Reads the current bill/payment state for the exact order on this table.
- */
 export async function getCustomerOrderState(
   tableId: string,
   orderId: string
@@ -146,10 +144,6 @@ export async function getCustomerOrderState(
   };
 }
 
-/**
-- Issues (or loads) the combined bill and returns BOTH the bill summary and
-- loyalty view in a single round-trip so the device never needs extra fetches.
- */
 export async function generateCustomerBill(
   tableId: string,
   orderId: string
@@ -229,10 +223,6 @@ export async function generateCustomerBill(
   };
 }
 
-/**
-- Issues the bill on the spot if needed AND generates the Razorpay / Demo QR
-- in a single server round-trip.
- */
 export async function createPaymentQr(
   tableId: string,
   orderId: string
@@ -289,7 +279,6 @@ export async function createPaymentQr(
 
   const cfg = getGatewayConfig();
 
-  // Demo mode when Razorpay credentials are unavailable.
   if (!cfg.configured) {
     return {
       ok: true,
@@ -306,7 +295,6 @@ export async function createPaymentQr(
     };
   }
 
-  // Real Razorpay QR.
   const amountPaise = Math.round(summary.remainingRupees * 100);
   const open = await getOpenIntent(bill.id);
 
@@ -366,10 +354,6 @@ export async function createPaymentQr(
   };
 }
 
-/**
-- Test-only payment simulation.
-- This is rejected whenever Razorpay is configured.
- */
 export async function simulateDemoPayment(
   tableId: string,
   orderId: string
@@ -464,6 +448,13 @@ export async function redeemLoyaltyReward(tableId: string, orderId: string, rewa
   return withLoyaltyBill(tableId, orderId, (bill) =>
     holdRedemptionDb(DEMO_RESTAURANT_ID, tableId, bill.id, rewardId)
   );
+}
+
+export async function redeemCustomPointsForBill(billId: string, points: number) {
+  const res = await holdCustomPointsRedemptionByBillDb(DEMO_RESTAURANT_ID, billId, points);
+  if (!res.ok) return { ok: false as const, message: res.message };
+  revalidatePath("/owner/billing");
+  return { ok: true as const };
 }
 
 export async function removeLoyaltyReward(tableId: string, orderId: string) {

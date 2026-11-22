@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-import type { CustomerBillState } from "@/server/modules/customer/actions";
+import { redeemCustomPointsForBill, type CustomerBillState } from "@/server/modules/customer/actions";
 
 export type LoyaltyHandlers = {
   identify: (phone: string) => Promise<{ ok: boolean; message?: string }>;
@@ -47,6 +48,7 @@ export function LoyaltyBox({
   onRedeemPointsChange?: (v: string) => void;
   onProceed?: () => void;
 }) {
+  const router = useRouter();
   const loyalty = bill.loyalty;
   const [localPhone, setLocalPhone] = useState("");
   const [localRedeem, setLocalRedeem] = useState("");
@@ -83,11 +85,12 @@ export function LoyaltyBox({
 
   const rewards = loyalty.identified ? loyalty.rewards : [];
   const available = rewards.filter((r) => r.redeemable);
-  const canRedeemAny = available.length > 0;
+  const canRedeemPoints = loyalty.identified && !loyalty.applied && loyalty.available > 0;
 
   async function redeemById(rewardId: string) {
     if (await run(() => handlers.redeem(rewardId))) {
       setRedeemPts("");
+      router.refresh();
       onProceed?.();
     }
   }
@@ -97,12 +100,25 @@ export function LoyaltyBox({
       onProceed?.();
       return;
     }
-    const pick = findRewardByPoints(rewards, redeemPts);
-    if (!pick.ok) {
-      setMessage(pick.message);
+
+    const text = redeemPts.trim();
+    const pts = Number(text);
+    if (!/^\d+$/.test(text) || pts <= 0) {
+      setMessage("Enter the points as a whole number.");
       return;
     }
-    await redeemById(pick.rewardId);
+
+    const exactPreset = findRewardByPoints(rewards, redeemPts);
+    if (exactPreset.ok) {
+      await redeemById(exactPreset.rewardId);
+      return;
+    }
+
+    if (await run(() => redeemCustomPointsForBill(bill.billId, pts))) {
+      setRedeemPts("");
+      router.refresh();
+      onProceed?.();
+    }
   }
 
   const border = { borderColor: "var(--device-shell-border)", background: "var(--device-lcd-bg)" };
@@ -180,9 +196,7 @@ export function LoyaltyBox({
             </div>
           )}
 
-          {available.length === 0 ? (
-            <p style={muted}>No reward is available with your points yet. Press Enter to continue to payment.</p>
-          ) : (
+          {available.length > 0 && (
             <ul className="space-y-2">
               {available.map((r) => (
                 <li
@@ -210,10 +224,10 @@ export function LoyaltyBox({
             </ul>
           )}
 
-          {canRedeemAny && (
+          {canRedeemPoints ? (
             <div>
               <label htmlFor="loyalty-redeem" style={muted}>
-                Points to redeem
+                Points to redeem (up to {loyalty.available} pts · ₹0.25/pt)
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -229,7 +243,7 @@ export function LoyaltyBox({
                     e.preventDefault();
                     if (!e.repeat && !busy) void submitRedeem();
                   }}
-                  placeholder="e.g. 100"
+                  placeholder={`e.g. ${Math.min(500, loyalty.available)}`}
                   className="min-w-0 flex-1 rounded-md border bg-transparent px-3 py-2 text-sm"
                   style={{ borderColor: "var(--device-shell-border)", color: "var(--device-lcd-text)" }}
                 />
@@ -244,9 +258,26 @@ export function LoyaltyBox({
                 </button>
               </div>
               <p className="mt-1" style={muted}>
-                Click Redeem (or press Enter) to apply points, or Skip &amp; Pay to continue to QR.
+                Enter points and click Redeem (or press Enter) to deduct from your order total, or click Skip &amp; Pay.
               </p>
             </div>
+          ) : (
+            !loyalty.applied && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p style={muted}>No points available to redeem yet. Press Enter to continue to payment.</p>
+                {onProceed && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onProceed()}
+                    className="rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                    style={{ background: "var(--device-gold)", color: "#171a10" }}
+                  >
+                    Continue to payment
+                  </button>
+                )}
+              </div>
+            )
           )}
         </div>
       )}

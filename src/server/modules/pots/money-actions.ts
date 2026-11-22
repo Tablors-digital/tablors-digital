@@ -56,8 +56,21 @@ async function run(
 ): Promise<never> {
   let code = "done";
   try {
-    const ctx = await actor();
-    const rt = await ensurePotsRuntime(ctx.restaurantId);
+    const rawCtx = await actor();
+    const candidates = Array.from(
+      new Set([rawCtx.restaurantId, DEMO_BUSINESS_ID].filter((id): id is string => Boolean(id))),
+    );
+    let rt = await ensurePotsRuntime(DEMO_BUSINESS_ID);
+    let businessId = DEMO_BUSINESS_ID;
+    for (const id of candidates) {
+      const candidateRt = await ensurePotsRuntime(id);
+      if (candidateRt.pots.length > 0 && id === DEMO_BUSINESS_ID) {
+        rt = candidateRt;
+        businessId = id;
+        break;
+      }
+    }
+    const ctx: ActionCtx = { ...rawCtx, restaurantId: businessId };
     code = (await fn(ctx, rt)) ?? "done";
   } catch (e) {
     code = `error:${e instanceof Error ? e.message : "Something went wrong"}`;
