@@ -70,11 +70,11 @@ export function TablorDevice({
   const router = useRouter();
 
   /*
-- Item selection works like the real device:
--  1. Type the item code on the keypad (codeDraft)
--  2. Press ✓  -> the item is selected (selectedCode)
--  3. Type the quantity (or use + / -)
--  4. Press ✓  -> the item is added to the order
+   * Item selection works like the real device:
+   *  1. Type the item code on the keypad (codeDraft)
+   *  2. Press ✓  -> the item is selected (selectedCode)
+   *  3. Type the quantity (or use + / -)
+   *  4. Press ✓  -> the item is added to the order
    */
   const [codeDraft, setCodeDraft] = useState("");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
@@ -107,10 +107,10 @@ export function TablorDevice({
   const [billRedeem, setBillRedeem] = useState("");
 
   /*
-- Keyboard ordering. The menu is always fully visible and items are chosen
-- by typing their code. ArrowUp / ArrowDown (and the keypad ▲ ▼ keys) only
-- move through the items already in the order list; X removes ONE quantity
-- of the highlighted line (the line disappears at zero).
+   * Keyboard ordering. The menu is always fully visible and items are chosen
+   * by typing their code. ArrowUp / ArrowDown (and the keypad ▲ ▼ keys) only
+   * move through the items already in the order list; X removes ONE quantity
+   * of the highlighted line (the line disappears at zero).
    */
   const [cartCursor, setCartCursor] = useState<string | null>(null);
   const [srMessage, setSrMessage] = useState("");
@@ -131,8 +131,8 @@ export function TablorDevice({
   const tableReserved = snap.table.status === "reserved";
 
   /*
-- On-screen notices (bottom of the device). One at a time; repeating the
-- same message re-triggers it because every notice gets a new id.
+   * On-screen notices (bottom of the device). One at a time; repeating the
+   * same message re-triggers it because every notice gets a new id.
    */
   const [notice, setNotice] = useState<ScreenNoticeData | null>(null);
   const noticeSeq = useRef(0);
@@ -165,10 +165,10 @@ export function TablorDevice({
   );
 
   /*
-- Automatic synchronisation. One lightweight read of this table's state
-- every few seconds (only while the tab is visible), plus an immediate
-- refresh after every action. A newer response always wins; a slow, older
-- response can never overwrite fresher state.
+   * Automatic synchronisation. One lightweight read of this table's state
+   * every few seconds (only while the tab is visible), plus an immediate
+   * refresh after every action. A newer response always wins; a slow, older
+   * response can never overwrite fresher state.
    */
   const reqSeq = useRef(0);
   const failures = useRef(0);
@@ -244,16 +244,16 @@ export function TablorDevice({
   const { syncWithMenu } = cart;
 
   /*
-- Keep the local cart synchronized with canonical menu availability.
+   * Keep the local cart synchronized with canonical menu availability.
    */
   useEffect(() => {
     syncWithMenu(items);
   }, [items, syncWithMenu]);
 
   /*
-- Closing the bill panel always resets what was being keyed in for it
-- (phone number and points to redeem). Done here, in the event paths,
-- instead of in an effect, so no state is set from inside an effect.
+   * Closing the bill panel always resets what was being keyed in for it
+   * (phone number and points to redeem). Done here, in the event paths,
+   * instead of in an effect, so no state is set from inside an effect.
    */
   function closeBill() {
     setBillOpen(false);
@@ -267,11 +267,11 @@ export function TablorDevice({
   }
 
   /*
-- Number keys:
--  - feedback open        -> rate the highlighted feedback row (0 = 10)
--  - bill panel open      -> build the mobile number / points to redeem
--  - no item selected yet -> build the item code
--  - item selected        -> build the quantity
+   * Number keys:
+   *  - feedback open        -> rate the highlighted feedback row (0 = 10)
+   *  - bill panel open      -> build the mobile number / points to redeem
+   *  - no item selected yet -> build the item code
+   *  - item selected        -> build the quantity
    */
   function handleDigit(digit: string) {
     // Feedback open: the keypad rates the highlighted row (1-9, 0 = 10) and moves on.
@@ -313,9 +313,9 @@ export function TablorDevice({
   }
 
   /*
-- X key: delete the last code digit, or the last quantity digit. With
-- nothing typed and an order line highlighted, it removes one of that item.
-- While feedback is open it clears the highlighted rating.
+   * X key: delete the last code digit, or the last quantity digit. With
+   * nothing typed and an order line highlighted, it removes one of that item.
+   * While feedback is open it clears the highlighted rating.
    */
   function handleBackspace() {
     if (feedbackOpen && feedbackRef.current) {
@@ -345,11 +345,11 @@ export function TablorDevice({
   }
 
   /*
-- ✓ key:
--  - feedback open    -> submit the feedback
--  - bill panel open  -> confirm the mobile number / generate the QR
--  - no item selected -> look up the typed item code and select it
--  - item selected    -> add the item with the chosen quantity
+   * ✓ key:
+   *  - feedback open    -> submit the feedback
+   *  - bill panel open  -> confirm the mobile number / generate the QR
+   *  - no item selected -> look up the typed item code and select it
+   *  - item selected    -> add the item with the chosen quantity
    */
   function handleCommitQty() {
     // Feedback open: ✓ submits (needs the required ratings).
@@ -462,10 +462,10 @@ export function TablorDevice({
   }
 
   /**
-- ▲ ▼ (keypad buttons and keyboard arrows) move ONLY through the lines of "Your Order".
-- They never highlight, move through or scroll the menu list, and do nothing
-- while the bill or payment QR is showing in place of the order panel.
-- While feedback is open they move the highlighted feedback row instead.
+   * ▲ ▼ (keypad buttons and keyboard arrows) move ONLY through the lines of "Your Order".
+   * They never highlight, move through or scroll the menu list, and do nothing
+   * while the bill or payment QR is showing in place of the order panel.
+   * While feedback is open they move the highlighted feedback row instead.
    */
   function moveCursor(delta: number) {
     if (feedbackOpen && feedbackRef.current) {
@@ -522,10 +522,10 @@ export function TablorDevice({
   }
 
   /*
-- ✓ while the bill panel is open:
--  - loyalty is on, no member yet, and a number was typed -> look the member up
--  - member identified and points typed -> apply that reward, then the QR
--  - otherwise -> generate the payment QR
+   * ✓ while the bill panel is open:
+   *  - loyalty is on, no member yet, and a number was typed -> look the member up
+   *  - member identified and points typed -> redeem reward / custom points, then QR
+   *  - otherwise -> generate the payment QR
    */
   async function handleBillConfirm() {
     const needsPhone =
@@ -534,20 +534,26 @@ export function TablorDevice({
       loyaltyState?.status !== "paid";
 
     if (needsPhone && billPhone.trim() !== "") {
-      const res = await loyaltyHandlers.identify(billPhone);
-      if (!res.ok) {
-        showNotice("error", res.message ?? "Couldn't check that number.");
-        return;
+      if (mutating.current) return;
+      mutating.current = true;
+      try {
+        const res = await loyaltyHandlers.identify(billPhone);
+        if (!res.ok) {
+          showNotice("error", res.message ?? "Couldn't check that number.");
+          return;
+        }
+        setBillPhone("");
+        showNotice("success", "MOBILE NUMBER SAVED", "Type points to redeem and press ✓, or press ✓ to skip and pay.");
+      } finally {
+        mutating.current = false;
       }
-      setBillPhone("");
-      showNotice("success", "MOBILE NUMBER SAVED", "Type points to redeem and press ✓, or press ✓ to skip and pay.");
       return;
     }
 
-    // Member identified and points typed: apply that reward, then show the payment QR at once.
     // Member identified and points typed: redeem matching preset reward or custom points, then show QR.
     const l = loyaltyState?.loyalty;
     if (l && l.enabled && l.identified && billRedeem.trim() !== "") {
+      if (mutating.current) return;
       const text = billRedeem.trim();
       const pts = Number(text);
       if (!/^\d+$/.test(text) || pts <= 0) {
@@ -555,29 +561,36 @@ export function TablorDevice({
         return;
       }
 
-      const pick = findRewardByPoints(l.rewards, billRedeem);
-      if (pick.ok) {
-        const res = await loyaltyHandlers.redeem(pick.rewardId);
-        if (!res.ok) {
-          showNotice("error", res.message ?? "Couldn't apply that reward.");
-          return;
-        }
-      } else if (loyaltyState?.billId) {
-        const customRes = await redeemCustomPointsForBill(loyaltyState.billId, pts);
-        if (!customRes.ok) {
-          showNotice("error", customRes.message ?? "Couldn't redeem those points.");
-          return;
-        }
-        const fresh = await getCustomerOrderState(tableId, orderId!);
-        if (fresh.ok && fresh.bill) setLoyaltyState(fresh.bill);
-        await refresh();
-      } else {
-        showNotice("error", pick.message);
-        return;
-      }
+      mutating.current = true;
+      showNotice("info", "APPLYING POINTS…", `Redeeming ${pts} points on your bill.`);
 
-      setBillRedeem("");
-      await handleQrGen();
+      try {
+        const pick = findRewardByPoints(l.rewards, billRedeem);
+        if (pick.ok) {
+          const res = await redeemLoyaltyReward(tableId, orderId!, pick.rewardId);
+          if (!res.ok) {
+            showNotice("error", res.message ?? "Couldn't apply that reward.");
+            return;
+          }
+          if (res.bill) setLoyaltyState(res.bill);
+        } else if (loyaltyState?.billId && orderId) {
+          const customRes = await redeemCustomPointsForBill(tableId, orderId, pts);
+          if (!customRes.ok) {
+            showNotice("error", customRes.message ?? "Couldn't redeem those points.");
+            return;
+          }
+          if (customRes.bill) setLoyaltyState(customRes.bill);
+        } else {
+          showNotice("error", pick.message);
+          return;
+        }
+
+        setBillRedeem("");
+        dismissNotice();
+        await handleQrGen();
+      } finally {
+        mutating.current = false;
+      }
       return;
     }
 
@@ -838,8 +851,8 @@ export function TablorDevice({
   }
 
   /*
-- CLEAR ALL: empties only the live, unconfirmed cart. Confirmed rounds live
-- on the server and every other table has its own cart, so neither is touched.
+   * CLEAR ALL: empties only the live, unconfirmed cart. Confirmed rounds live
+   * on the server and every other table has its own cart, so neither is touched.
    */
   function handleClearAll() {
     cart.clearCart();
@@ -967,8 +980,8 @@ export function TablorDevice({
   }
 
   /*
-- BILL GEN: issues the ONE combined bill for every confirmed round and receives
-- the full bill + loyalty view in a single server round-trip.
+   * BILL GEN: issues the ONE combined bill for every confirmed round and receives
+   * the full bill + loyalty view in a single server round-trip.
    */
   async function handleBillGen() {
     if (!orderId) {
@@ -1036,8 +1049,8 @@ export function TablorDevice({
   }
 
   /*
-- QR GEN / SCAN TO PAY: issues the bill on the server if needed and generates
-- the payment QR in a single server round-trip.
+   * QR GEN / SCAN TO PAY: issues the bill on the server if needed and generates
+   * the payment QR in a single server round-trip.
    */
   async function handleQrGen() {
     // Before any order: QR GEN shows the menu QR. After ordering: the dynamic pay QR.
@@ -1072,8 +1085,8 @@ export function TablorDevice({
   }
 
   /*
-- F key / FEEDBACK key: opens the feedback panel directly inside the right-hand
-- device LCD screen (or closes it back to Your Order if already open).
+   * F key / FEEDBACK key: opens the feedback panel directly inside the right-hand
+   * device LCD screen (or closes it back to Your Order if already open).
    */
   function handleFeedback() {
     if (!orderId || sessionClosed) {
@@ -1091,27 +1104,26 @@ export function TablorDevice({
   }
 
   // Loyalty: each call returns the refreshed bill (new total after a reward).
-  // The refresh is awaited so the discounted total is current before the QR is made.
   const loyaltyHandlers = {
     async identify(phone: string) {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await identifyLoyaltyMember(tableId, orderId, phone);
       if (res.bill) setLoyaltyState(res.bill);
-      await refresh();
+      void refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
     async redeem(rewardId: string) {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await redeemLoyaltyReward(tableId, orderId, rewardId);
       if (res.bill) setLoyaltyState(res.bill);
-      await refresh();
+      void refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
     async remove() {
       if (!orderId) return { ok: false, message: "Generate the bill first." };
       const res = await removeLoyaltyReward(tableId, orderId);
       if (res.bill) setLoyaltyState(res.bill);
-      await refresh();
+      void refresh();
       return res.ok ? { ok: true } : { ok: false, message: res.message };
     },
   };

@@ -450,11 +450,29 @@ export async function redeemLoyaltyReward(tableId: string, orderId: string, rewa
   );
 }
 
-export async function redeemCustomPointsForBill(billId: string, points: number) {
-  const res = await holdCustomPointsRedemptionByBillDb(DEMO_RESTAURANT_ID, billId, points);
-  if (!res.ok) return { ok: false as const, message: res.message };
-  revalidatePath("/owner/billing");
-  return { ok: true as const };
+export async function redeemCustomPointsForBill(
+  tableIdOrBillId: string,
+  orderIdOrPoints: string | number,
+  maybePoints?: number
+) {
+  // Supports both (tableId, orderId, points) and legacy (billId, points)
+  if (typeof orderIdOrPoints === "number") {
+    const billId = tableIdOrBillId;
+    const points = orderIdOrPoints;
+    const res = await holdCustomPointsRedemptionByBillDb(DEMO_RESTAURANT_ID, billId, points);
+    if (!res.ok) return { ok: false as const, message: res.message, bill: null };
+    revalidatePath("/owner/billing");
+    return { ok: true as const, bill: null };
+  }
+
+  const tableId = tableIdOrBillId;
+  const orderId = orderIdOrPoints;
+  const points = maybePoints ?? 0;
+  const res = await withLoyaltyBill(tableId, orderId, (bill) =>
+    holdCustomPointsRedemptionByBillDb(DEMO_RESTAURANT_ID, bill.id, points)
+  );
+  if (res.ok) revalidatePath("/owner/billing");
+  return res;
 }
 
 export async function removeLoyaltyReward(tableId: string, orderId: string) {
