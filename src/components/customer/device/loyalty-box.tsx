@@ -10,34 +10,26 @@ export type LoyaltyHandlers = {
   remove: () => Promise<{ ok: boolean; message?: string }>;
 };
 
-/**
- * Maps the points typed in the redeem field to the reward that costs exactly that many points.
- * Shared by the field's own Enter handler and the device keypad's ✓ key.
- */
 export function findRewardByPoints(
   rewards: { id: string; pointsCost: number; redeemable: boolean; reason?: string | null }[],
   raw: string,
 ): { ok: true; rewardId: string } | { ok: false; message: string } {
   const text = raw.trim();
   const pts = Number(text);
-  if (!/^\d+$/.test(text) || pts <= 0) return { ok: false, message: "Enter the points as a whole number." };
+  if (!/^\d+$/.test(text) || pts <= 0) {
+    return { ok: false, message: "Enter the points as a whole number." };
+  }
   const same = rewards.filter((r) => r.pointsCost === pts);
   const hit = same.find((r) => r.redeemable);
   if (hit) return { ok: true, rewardId: hit.id };
-  if (same.length > 0) return { ok: false, message: same[0].reason ?? "Not enough points for that reward." };
+  if (same.length > 0) {
+    return { ok: false, message: same[0].reason ?? "Not enough points for that reward." };
+  }
   return { ok: false, message: `No reward costs ${pts} points.` };
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
-/**
- * Loyalty section of the customer bill: enter a mobile number, see points and
- * rewards, apply one reward. Points are deducted from the balance as soon as
- * a reward is applied, and refunded if the reward is removed.
- *
- * - Phone lookup: Enter in the field or the Continue button.
- * - Redeem: Enter ONLY (no button, nothing on blur), then onProceed shows the QR.
- */
 export function LoyaltyBox({
   bill,
   handlers,
@@ -49,37 +41,38 @@ export function LoyaltyBox({
 }: {
   bill: CustomerBillState;
   handlers: LoyaltyHandlers;
-  /** When given, the number is owned by the device so the keypad can type it. */
   phone?: string;
-  onPhoneChange?: (phone: string) => void;
-  /** Points typed in the redeem field (owned by the device when given, so the keypad can type it). */
+  onPhoneChange?: (v: string) => void;
   redeemPoints?: string;
-  onRedeemPointsChange?: (points: string) => void;
-  /** Called once a reward is applied, or the customer skips redeeming: the device then shows the payment QR. */
+  onRedeemPointsChange?: (v: string) => void;
   onProceed?: () => void;
 }) {
   const loyalty = bill.loyalty;
   const [localPhone, setLocalPhone] = useState("");
-  const phone = controlledPhone ?? localPhone;
-  const setPhone = onPhoneChange ?? setLocalPhone;
-  const keypadDriven = controlledPhone !== undefined;
   const [localRedeem, setLocalRedeem] = useState("");
-  const redeemPts = controlledRedeem ?? localRedeem;
-  const setRedeemPts = onRedeemPointsChange ?? setLocalRedeem;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  if (!loyalty.enabled || bill.status === "paid") return null;
+  const phone = controlledPhone !== undefined ? controlledPhone : localPhone;
+  const setPhone = (v: string) => {
+    setLocalPhone(v);
+    onPhoneChange?.(v);
+  };
+
+  const redeemPts = controlledRedeem !== undefined ? controlledRedeem : localRedeem;
+  const setRedeemPts = (v: string) => {
+    setLocalRedeem(v);
+    onRedeemPointsChange?.(v);
+  };
 
   async function run(action: () => Promise<{ ok: boolean; message?: string }>): Promise<boolean> {
-    if (busy) return false;
     setBusy(true);
     setMessage(null);
     let ok = false;
     try {
       const res = await action();
       ok = res.ok;
-      if (!res.ok) setMessage(res.message ?? "Something went wrong.");
+      if (res.message) setMessage(res.message);
     } catch {
       setMessage("Couldn't reach the server. Please try again.");
     } finally {
@@ -92,7 +85,13 @@ export function LoyaltyBox({
   const available = rewards.filter((r) => r.redeemable);
   const canRedeemAny = available.length > 0;
 
-  /** Enter in the redeem field: apply the reward that costs the typed points, or skip when empty. Then pay. */
+  async function redeemById(rewardId: string) {
+    if (await run(() => handlers.redeem(rewardId))) {
+      setRedeemPts("");
+      onProceed?.();
+    }
+  }
+
   async function submitRedeem() {
     if (redeemPts.trim() === "") {
       onProceed?.();
@@ -103,10 +102,7 @@ export function LoyaltyBox({
       setMessage(pick.message);
       return;
     }
-    if (await run(() => handlers.redeem(pick.rewardId))) {
-      setRedeemPts("");
-      onProceed?.();
-    }
+    await redeemById(pick.rewardId);
   }
 
   const border = { borderColor: "var(--device-shell-border)", background: "var(--device-lcd-bg)" };
@@ -123,11 +119,6 @@ export function LoyaltyBox({
           <label htmlFor="loyalty-phone" style={muted}>
             Enter your mobile number to earn and use points
           </label>
-          {keypadDriven && (
-            <p className="mt-1 hidden lg:block" style={{ color: "var(--device-gold)" }}>
-              Type it on the keypad, then press ✓ (or Enter).
-            </p>
-          )}
           <div className="mt-2 flex gap-2">
             <input
               id="loyalty-phone"
@@ -138,10 +129,11 @@ export function LoyaltyBox({
               value={phone}
               onChange={(e) => setPhone(e.target.value.replace(/[^\d+\s-]/g, ""))}
               onKeyDown={(e) => {
-                // Enter does exactly what Continue does.
                 if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
                 e.preventDefault();
-                if (!e.repeat && phone.trim() !== "") void run(() => handlers.identify(phone));
+                if (!e.repeat && phone.trim() !== "" && !busy) {
+                  void run(() => handlers.identify(phone));
+                }
               }}
               placeholder="98765 43210"
               className="min-w-0 flex-1 rounded-md border bg-transparent px-3 py-2 text-sm"
@@ -174,7 +166,9 @@ export function LoyaltyBox({
                 {loyalty.applied.rewardName} applied
                 {loyalty.applied.discountRupees > 0 ? `: −${inr(loyalty.applied.discountRupees)}` : ""}
               </p>
-              <p style={muted}>Code {loyalty.applied.code} · {loyalty.applied.points} points deducted</p>
+              <p style={muted}>
+                Code {loyalty.applied.code} · {loyalty.applied.points} points deducted
+              </p>
               <button
                 type="button"
                 disabled={busy}
@@ -191,13 +185,26 @@ export function LoyaltyBox({
           ) : (
             <ul className="space-y-2">
               {available.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-3 rounded-md border p-3" style={{ borderColor: "var(--device-shell-border)" }}>
+                <li
+                  key={r.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                  style={{ borderColor: "var(--device-shell-border)" }}
+                >
                   <span className="min-w-0">
                     <span className="block font-semibold">{r.name}</span>
                     <span className="block" style={muted}>
                       {r.description} · {r.pointsCost} pts
                     </span>
                   </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void redeemById(r.id)}
+                    className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                    style={{ background: "var(--device-gold)", color: "#171a10" }}
+                  >
+                    {busy ? "Redeeming…" : "Redeem"}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -208,31 +215,39 @@ export function LoyaltyBox({
               <label htmlFor="loyalty-redeem" style={muted}>
                 Points to redeem
               </label>
-              <input
-                id="loyalty-redeem"
-                type="text"
-                inputMode="numeric"
-                maxLength={5}
-                value={redeemPts}
-                disabled={busy}
-                onChange={(e) => setRedeemPts(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={(e) => {
-                  // Redeeming happens ONLY on Enter: no button, and leaving the field does nothing.
-                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-                  e.preventDefault();
-                  if (!e.repeat) void submitRedeem();
-                }}
-                placeholder="e.g. 100"
-                className="mt-1 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
-                style={{ borderColor: "var(--device-shell-border)", color: "var(--device-lcd-text)" }}
-              />
+              <div className="mt-1 flex gap-2">
+                <input
+                  id="loyalty-redeem"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={5}
+                  value={redeemPts}
+                  disabled={busy}
+                  onChange={(e) => setRedeemPts(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    if (!e.repeat && !busy) void submitRedeem();
+                  }}
+                  placeholder="e.g. 100"
+                  className="min-w-0 flex-1 rounded-md border bg-transparent px-3 py-2 text-sm"
+                  style={{ borderColor: "var(--device-shell-border)", color: "var(--device-lcd-text)" }}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void submitRedeem()}
+                  className="rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                  style={{ background: "var(--device-gold)", color: "#171a10" }}
+                >
+                  {busy ? "Redeeming…" : redeemPts.trim() === "" ? "Skip & Pay" : "Redeem"}
+                </button>
+              </div>
               <p className="mt-1" style={muted}>
-                Type the points, then press Enter to redeem. Press Enter on an empty field to skip and pay.
-                {keypadDriven ? " On the keypad: type the points, then ✓." : ""}
+                Click Redeem (or press Enter) to apply points, or Skip &amp; Pay to continue to QR.
               </p>
             </div>
           )}
-
         </div>
       )}
 

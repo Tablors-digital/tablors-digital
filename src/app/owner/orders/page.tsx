@@ -14,10 +14,9 @@ import { DayPicker } from "@/components/ui/day-picker";
 import { istDay, resolveDay, todayIst, yesterdayIst } from "@/lib/day";
 import { LiveRefresh } from "@/components/live/live-refresh";
 import { DEMO_RESTAURANT_ID } from "@/server/modules/auth/session";
-import type { Bill, Order, RestaurantTable } from "@/server/modules/demo-store/store";
+import type { Bill, Order, OrderStatus, RestaurantTable } from "@/server/modules/demo-store/store";
 import {
   acknowledgeWaiter,
-  advanceOrderFromForm,
   cancelOrderFromForm,
 } from "@/server/modules/orders/actions";
 import { formatOrderNo, tableNumberFromLabel } from "@/lib/order-number";
@@ -26,6 +25,7 @@ import { listBillsDb } from "@/server/modules/billing/db-billing";
 import { db } from "@/server/db/client";
 import { orderEvents } from "@/server/db/schema";
 import { OrdersRefreshButton } from "./orders-refresh-button";
+import { OrderAdvanceButton } from "./order-advance-button";
 
 // Orders change constantly — never prerender.
 export const dynamic = "force-dynamic";
@@ -505,16 +505,11 @@ export default async function LiveOrdersPage({ searchParams }: PageProps) {
                 {/* actions */}
                 <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-900 pt-4">
                   {action && (
-                    <form action={advanceOrderFromForm}>
-                      <input type="hidden" name="orderId" value={order.id} />
-                      <input type="hidden" name="expectedStatus" value={order.status} />
-                      <button
-                        type="submit"
-                        className="rounded-lg border border-[#39ff6a] bg-[#39ff6a] px-5 py-2.5 text-sm font-extrabold text-black shadow-[0_0_14px_rgba(57,255,106,0.35)] transition hover:brightness-110 active:scale-95"
-                      >
-                        {action}
-                      </button>
-                    </form>
+                    <OrderAdvanceButton
+                      orderId={order.id}
+                      currentStatus={order.status as OrderStatus}
+                      label={action}
+                    />
                   )}
 
                   {order.status === "served" && (
